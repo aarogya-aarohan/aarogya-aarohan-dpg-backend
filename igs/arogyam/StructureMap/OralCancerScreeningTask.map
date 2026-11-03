@@ -1,0 +1,29 @@
+map "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningTask" = 'OralCancerScreeningTask'
+
+uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+uses "http://hl7.org/fhir/StructureDefinition/Parameters" as source
+
+
+group OralCancerScreeningTask(source src : Parameters, target bundle: Bundle) {
+    src ->  evaluate(src, $this.parameter.where(name='context').resource) as encounter,
+            evaluate(src, $this.parameter.where(name='resource').resource) as task,
+            bundle.entry as bundleTaskEntry, bundleTaskEntry.resource = task,
+            bundle.entry as bundleEncounterEntry, bundleEncounterEntry.resource = encounter
+            then TransformEncounter(bundleEncounterEntry,encounter), TransformTask(bundleTaskEntry, task) "rule_transform" ;
+}
+
+group TransformTask(source input, target task: Task) {
+    input -> task.id = uuid(),
+            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-task',
+            task.status = 'requested',
+            task.intent = 'order',
+            task.priority = 'routine',
+            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),
+            task.description = 'Task for specialist to screen patient',
+            task.authoredOn = evaluate(input ,now()),
+            task.lastModified = evaluate(input ,now()) "rule_task_map";
+}
+
+group TransformEncounter(source input , target encounter: Encounter) {
+    input -> encounter.status = 'in-progress' "rule_encounter_map";
+}

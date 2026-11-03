@@ -1,0 +1,322 @@
+{
+  "resourceType" : "StructureMap",
+  "id" : "OralCancerLabelImageTask",
+  "text" : {
+    "status" : "additional",
+    "div" : "<div xmlns=\"http://www.w3.org/1999/xhtml\"><pre>map &quot;https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageTask&quot; = 'OralCancerLabelImageTask'\n\nuses &quot;http://hl7.org/fhir/StructureDefinition/Bundle&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Parameters&quot; as source\n\n\ngroup OralCancerLabelImageTask(source src : Parameters, target bundle: Bundle) {\n    src -&gt;  evaluate(src, $this.parameter.where(name='context').resource) as media,\n            evaluate(src, $this.parameter.where(name='resource').resource) as task,\n            bundle.entry as bundleTaskEntry, bundleTaskEntry.resource = task,\n            bundle.entry as bundleMediaEntry, bundleMediaEntry.resource = media\n            then UpdateMediaStatus(bundleMediaEntry,media), TransformTask(bundleTaskEntry, media, task) &quot;rule_transform&quot; ;\n}\n\ngroup TransformTask(source input, source media: Media, target task: Task) {\n    input -&gt; task.id = uuid(),\n            task.status = 'requested',\n            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-image-labelling',\n            task.intent = 'order',\n            task.priority = 'routine',\n            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),\n            task.description = 'Task for reader to label image',\n            task.authoredOn = evaluate(input ,now()),\n            task.lastModified = evaluate(input ,now()) &quot;rule_task_map&quot;;\n\n    input -&gt; task.input as taskInput then AddTaskInput(task, media, taskInput) &quot;map_task_input&quot;;\n}\n\ngroup AddTaskInput(source task: Task, source media: Media, target input){\n    task -&gt; input.type = cc('http://hl7.org/fhir/resource-types','Media','Media'),\n            input.value = create('Reference') as ref, ref.reference = evaluate(media, 'Media/'+$this.id) &quot;rule_task_input_map&quot;;\n}\n\ngroup UpdateMediaStatus(source input, target media: Media ){\n    input -&gt; media.status = 'in-progress' 'update_media_status';\n}</pre></div>"
+  },
+  "url" : "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageTask",
+  "name" : "OralCancerLabelImageTask",
+  "structure" : [{
+    "url" : "http://hl7.org/fhir/StructureDefinition/Bundle",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Parameters",
+    "mode" : "source"
+  }],
+  "group" : [{
+    "name" : "OralCancerLabelImageTask",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "Parameters",
+      "mode" : "source"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_transform",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "contextType" : "variable",
+        "variable" : "media",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "$this.parameter.where(name = 'context').resource"
+        }]
+      },
+      {
+        "contextType" : "variable",
+        "variable" : "task",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "$this.parameter.where(name = 'resource').resource"
+        }]
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "bundleTaskEntry"
+      },
+      {
+        "context" : "bundleTaskEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "task"
+        }]
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "bundleMediaEntry"
+      },
+      {
+        "context" : "bundleMediaEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "media"
+        }]
+      }],
+      "dependent" : [{
+        "name" : "UpdateMediaStatus",
+        "variable" : ["bundleMediaEntry",
+        "media"]
+      },
+      {
+        "name" : "TransformTask",
+        "variable" : ["bundleTaskEntry",
+        "media",
+        "task"]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformTask",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "input",
+      "mode" : "source"
+    },
+    {
+      "name" : "media",
+      "type" : "Media",
+      "mode" : "source"
+    },
+    {
+      "name" : "task",
+      "type" : "Task",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_task_map",
+      "source" : [{
+        "context" : "input"
+      }],
+      "target" : [{
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "requested"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "instantiatesUri",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "https://midas.iisc.ac.in/fhir/Task/oral-cancer-image-labelling"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "intent",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "order"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "priority",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "routine"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://hl7.org/fhir/CodeSystem/task-code"
+        },
+        {
+          "valueString" : "fulfill"
+        },
+        {
+          "valueString" : "Fulfill the focal request"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "description",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "Task for reader to label image"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "authoredOn",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "input"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "lastModified",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "input"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "map_task_input",
+      "source" : [{
+        "context" : "input"
+      }],
+      "target" : [{
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "input",
+        "variable" : "taskInput"
+      }],
+      "dependent" : [{
+        "name" : "AddTaskInput",
+        "variable" : ["task",
+        "media",
+        "taskInput"]
+      }]
+    }]
+  },
+  {
+    "name" : "AddTaskInput",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "task",
+      "type" : "Task",
+      "mode" : "source"
+    },
+    {
+      "name" : "media",
+      "type" : "Media",
+      "mode" : "source"
+    },
+    {
+      "name" : "input",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_task_input_map",
+      "source" : [{
+        "context" : "task"
+      }],
+      "target" : [{
+        "context" : "input",
+        "contextType" : "variable",
+        "element" : "type",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://hl7.org/fhir/resource-types"
+        },
+        {
+          "valueString" : "Media"
+        },
+        {
+          "valueString" : "Media"
+        }]
+      },
+      {
+        "context" : "input",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "ref",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "ref",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "media"
+        },
+        {
+          "valueString" : "'Media/' + $this.id"
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "UpdateMediaStatus",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "input",
+      "mode" : "source"
+    },
+    {
+      "name" : "media",
+      "type" : "Media",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "update_media_status",
+      "source" : [{
+        "context" : "input"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "in-progress"
+        }]
+      }]
+    }]
+  }]
+}

@@ -1,0 +1,110 @@
+map "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningResponse" = 'OralCancerScreeningResponse'
+
+uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse" as source
+
+
+group OralCancerScreeningResponse(source src : QuestionnaireResponse, target bundle: Bundle) {
+    src -> bundle.entry as clinicalImpressionEntry,
+        bundle.entry as conditionEntry,
+        bundle.entry as riskAccessementEntry,
+        clinicalImpressionEntry.resource = create('ClinicalImpression') as impression,
+        create('Condition') as condition,
+        create('RiskAssessment') as ra then {
+
+        // Creates clinical impression with just code and also creates a condition
+        src.item as provisionDiagnosisItem where(linkId = 'provisional-diagnosis') then {
+            provisionDiagnosisItem.answer first as answer -> 
+                impression.id = uuid(),
+                condition.id = uuid(),
+                impression.encounter = evaluate(src,$this.encounter),
+                impression.status = 'completed',
+                impression.description = 'Clinical impression by Specialist or Senior Specialist for a proabbale oral cancer patient',
+                impression.subject = evaluate(src,$this.subject),
+                impression.date = evaluate(src, $this.authored),
+                impression.assessor = evaluate(src,$this.author),
+                impression.finding as finding,
+                finding.itemCodeableConcept = create('CodeableConcept') as findingCC,
+                findingCC.coding = evaluate(answer,$this.value),
+                condition.encounter = evaluate(src,$this.encounter),
+                condition.subject = evaluate(src,$this.subject),
+                condition.clinicalStatus = cc('http://terminology.hl7.org/CodeSystem/condition-clinical','active','Active'),
+                condition.verificationStatus = cc('http://terminology.hl7.org/CodeSystem/condition-ver-status','confirmed','Confirmed'),
+                condition.code as conditionCode,
+                conditionCode.coding = evaluate(answer,$this.value),
+                condition.asserter = evaluate(src,$this.author),
+                impression.problem = create('Reference') as impressionProblemRef, 
+                impressionProblemRef.reference = evaluate(condition,'Condition/' + $this.id),
+                conditionEntry.resource = condition "rule_populate_impression";
+        } "rule_prov";
+
+        // Create risk assesement based on the specialist answer
+        src.item as recommendationItem where(linkId = 'recommendation') then {
+            recommendationItem.answer first as answer -> 
+                ra.id = uuid(),
+                ra.status = 'final',
+                ra.subject = evaluate(src, $this.subject),
+                ra.encounter = evaluate(src, $this.encounter),
+                ra.performer = evaluate(src, $this.author),
+                ra.condition = create('Reference') as raConditionRef,
+                raConditionRef.reference = evaluate(condition,'Condition/' + $this.id),
+                impression.prognosisReference = create('Reference') as impressionPrognosisRef,
+                impressionPrognosisRef.reference = evaluate(ra,'RiskAssessment/' + $this.id) "rule_populate_ra";
+        } "rule_rec_ra";
+
+        // Create multiple outcome for the risk asssement
+        src.item as re where(linkId = 'recommendation') then {
+            re.answer as answer -> 
+                ra.prediction as prediction,
+                prediction.outcome as predictionCC,
+                predictionCC.coding = evaluate(answer,$this.value),
+                riskAccessementEntry.resource = ra  "rule_rec_ra_pref_va";
+        } "rule_rec_ra_pred";
+
+        // Update the body site where the condition is impacted
+        src.item as bodySiteItem where(linkId='oral-cavity-site') then {
+            bodySiteItem.answer first as answer -> condition.bodySite = create('CodeableConcept') as bodyCC, bodyCC.coding = evaluate(answer,$this.value) "rule_condition_body_site";
+        } "rule_body_site";
+        
+        // Update the note of the specalist in clinical impression
+        src.item as noteItem where(linkId = 'note') then {
+            noteItem.answer first as answer -> 
+                impression.summary = evaluate(answer,$this.value) "rule_populate_impression_note";
+        } "rule_impression_note";
+
+    } "rule_bundle_entry_impression";
+
+    src.item as recommendationItem where(linkId='recommendation') then {
+        recommendationItem where(answer.value.all(code ='quit-habit').not()) ->
+            bundle.entry as taskEntry,
+            taskEntry.resource = create('Task') as task,
+            task.id = uuid(),
+            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-follow-up',
+            task.encounter = evaluate(src,$this.encounter),
+            task.for = evaluate(src,$this.subject),
+            task.status = 'requested',
+            task.priority = 'routine',
+            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),
+            task.authoredOn = evaluate(src ,now()),
+            task.lastModified = evaluate(src ,now())
+            then UpdateTaskRecommendation(src, recommendationItem, task) "rule_followup";
+    } "recomm_chec";
+}
+
+group UpdateTaskRecommendation(source src: QuestionnaireResponse, source recommendationItem: BackboneElement, target task: Task){
+    recommendationItem.answer as answer then {
+        answer.value as value ->
+            task.description = evaluate(value, 'Follow up: ' + $this.display),
+            task.input as recommendationInput,
+            recommendationInput.type as recommendationInputType,
+            recommendationInputType.id = 'recommendation',
+            recommendationInput.value = evaluate(value ,$this) "rule_task_qh";
+    } "rule_task_update";
+
+    recommendationItem.answer as answer then {
+        answer.value as value where(code='quit-habit') -> task.intent = 'option' "rule_task_intent_opt";
+        answer.value as value where(code='retake-image') -> task.intent = 'proposal' "rule_task_intent_prop";
+        answer.value as value where(code='additional-investigation-needed') -> task.intent = 'plan' "rule_task_intent_plan";
+        answer.value as value where(code='urgent-refer-to-hospital') -> task.intent = 'order' "rule_task_intent_intent";
+    } "rule_follow_ans";
+}

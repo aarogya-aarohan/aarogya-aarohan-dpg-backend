@@ -1,0 +1,14 @@
+{
+  "resourceType": "Location",
+  "id": "physical-location-hospital",
+  "name": "Hospital",
+  "physicalType": {
+    "coding": [
+      {
+        "code": "hospital",
+        "system": "https://midas.iisc.ac.in/fhir/CodeSystem/location-physical-type",
+        "display": "Hospital"
+      }
+    ]
+  }
+}

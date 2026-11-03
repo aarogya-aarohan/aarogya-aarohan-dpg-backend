@@ -1,0 +1,218 @@
+{
+  "resourceType" : "StructureMap",
+  "id" : "OralCancerLabelImageResponse",
+  "text" : {
+    "status" : "additional",
+    "div" : "<div xmlns=\"http://www.w3.org/1999/xhtml\"><pre>map &quot;https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageResponse&quot; = 'OralCancerLabelImageResponse'\n\nuses &quot;http://hl7.org/fhir/StructureDefinition/Bundle&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse&quot; as source\n\n\ngroup OralCancerLabelImageResponse(source src : QuestionnaireResponse, target bundle: Bundle) {\n    src -&gt; bundle.entry as bundleClinicalImpressionEntry,\n         bundleClinicalImpressionEntry.resource = create('DiagnosticReport') as dr then {\n            src.item as provisionDiagnosisItem where(linkId = 'provisional-diagnosis') then {\n                provisionDiagnosisItem.answer first as answer -&gt; \n                    dr.id = uuid(),\n                    dr.encounter = evaluate(src,$this.encounter),\n                    dr.status = 'final',\n                    dr.subject = evaluate(src,$this.subject),\n                    dr.effective = evaluate(src, $this.authored),\n                    dr.performer = evaluate(src,$this.author),\n                    dr.conclusionCode as conclusionCode,\n                    conclusionCode.coding = evaluate(answer,$this.value)\n                    then AddMedia(src, dr) &quot;rule_populate_impression&quot;;\n            } &quot;rule_prov&quot;;\n    } &quot;rule_bundle_entry_impression&quot;;\n}\n\ngroup AddMedia(source src: QuestionnaireResponse, target dr: DiagnosticReport){\n    src.item as mediaItem where(linkId = 'media-id') then {\n        mediaItem.answer first as answer -&gt; dr.media as media, media.link = create('Reference') as ref, ref.reference = evaluate(answer, $this.value) &quot;rule_media_rt&quot;;\n    } &quot;rule_add_media&quot;;\n}\n</pre></div>"
+  },
+  "url" : "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageResponse",
+  "name" : "OralCancerLabelImageResponse",
+  "structure" : [{
+    "url" : "http://hl7.org/fhir/StructureDefinition/Bundle",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse",
+    "mode" : "source"
+  }],
+  "group" : [{
+    "name" : "OralCancerLabelImageResponse",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_bundle_entry_impression",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "bundleClinicalImpressionEntry"
+      },
+      {
+        "context" : "bundleClinicalImpressionEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "variable" : "dr",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "DiagnosticReport"
+        }]
+      }],
+      "rule" : [{
+        "name" : "rule_prov",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "provisionDiagnosisItem",
+          "condition" : "(linkId = 'provisional-diagnosis')"
+        }],
+        "rule" : [{
+          "name" : "rule_populate_impression",
+          "source" : [{
+            "context" : "provisionDiagnosisItem",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "id",
+            "transform" : "uuid"
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "encounter",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.encounter"
+            }]
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "status",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "final"
+            }]
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "subject",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.subject"
+            }]
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "effective",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.authored"
+            }]
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "performer",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.author"
+            }]
+          },
+          {
+            "context" : "dr",
+            "contextType" : "variable",
+            "element" : "conclusionCode",
+            "variable" : "conclusionCode"
+          },
+          {
+            "context" : "conclusionCode",
+            "contextType" : "variable",
+            "element" : "coding",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          }],
+          "dependent" : [{
+            "name" : "AddMedia",
+            "variable" : ["src",
+            "dr"]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "AddMedia",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "dr",
+      "type" : "DiagnosticReport",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_add_media",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "mediaItem",
+        "condition" : "(linkId = 'media-id')"
+      }],
+      "rule" : [{
+        "name" : "rule_media_rt",
+        "source" : [{
+          "context" : "mediaItem",
+          "element" : "answer",
+          "listMode" : "first",
+          "variable" : "answer"
+        }],
+        "target" : [{
+          "context" : "dr",
+          "contextType" : "variable",
+          "element" : "media",
+          "variable" : "media"
+        },
+        {
+          "context" : "media",
+          "contextType" : "variable",
+          "element" : "link",
+          "variable" : "ref",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Reference"
+          }]
+        },
+        {
+          "context" : "ref",
+          "contextType" : "variable",
+          "element" : "reference",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "answer"
+          },
+          {
+            "valueString" : "$this.value"
+          }]
+        }]
+      }]
+    }]
+  }]
+}

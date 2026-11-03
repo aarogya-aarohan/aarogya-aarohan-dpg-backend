@@ -1,0 +1,51 @@
+{
+    "resourceType": "CodeSystem",
+    "id": "practitioner-role-type",
+    "url": "https://midas.iisc.ac.in/fhir/CodeSystem/practitioner-role-type",
+    "version": "1.0.0",
+    "name": "PractitionerRoleType",
+    "title": "Practitioner Role Type",
+    "status": "active",
+    "date": "2024-06-17T00:00:00Z",
+    "description": "A CodeSystem defining various practitioner role types such as super admin, specialist, senior specialist, reader, front line worker, etc.",
+    "caseSensitive": true,
+    "content": "complete",
+    "concept": [
+      {
+        "code": "super-admin",
+        "display": "Super Admin",
+        "definition": "A practitioner with the highest administrative privileges."
+      },
+      {
+        "code": "specialist",
+        "display": "Specialist",
+        "definition": "A practitioner with specialized knowledge in a particular area."
+      },
+      {
+        "code": "senior-specialist",
+        "display": "Senior Specialist",
+        "definition": "A practitioner with advanced specialized knowledge in a particular area."
+      },
+      {
+        "code": "reader",
+        "display": "Reader",
+        "definition": "A practitioner with read-only access."
+      },
+      {
+        "code": "site-admin",
+        "display": "Site Admin",
+        "definition": "A site coordinator managing a site"
+      },
+      {
+        "code": "site-coordinator",
+        "display": "Site Coordinator",
+        "definition": "A site coordinator managing a site"
+      },
+      {
+        "code": "flw",
+        "display": "Front Line Worker",
+        "definition": "A practitioner who is a front line worker."
+      }
+    ]
+  }
+  

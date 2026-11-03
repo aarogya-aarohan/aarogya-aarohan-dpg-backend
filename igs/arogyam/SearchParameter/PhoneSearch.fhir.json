@@ -1,0 +1,12 @@
+{
+    "resourceType": "SearchParameter",
+    "id": "PhoneSearch",
+    "title": "Phone Search",
+    "name": "PhoneSearch",
+    "base": ["Patient"],
+    "status": "active",
+    "code": "phone-contains",
+    "type": "string",
+    "expression": "Patient.telecom.where(system = 'phone').value",
+    "XpathUsage": "normal"
+}

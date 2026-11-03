@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "FlwId",
+  "title": "flw-id",
+  "name": "flw-id",
+  "base": ["Basic"],
+  "status": "active",
+  "code": "flw-id",
+  "type": "token",
+  "expression": "Basic.extension('https://midas.iisc.ac.in/fhir/StructureDefinition/flw-id')",
+  "XpathUsage": "normal"
+}

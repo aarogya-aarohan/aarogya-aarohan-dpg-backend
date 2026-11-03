@@ -1,0 +1,237 @@
+{
+  "resourceType" : "StructureMap",
+  "id" : "OralCancerScreeningTask",
+  "text" : {
+    "status" : "additional",
+    "div" : "<div xmlns=\"http://www.w3.org/1999/xhtml\"><pre>map &quot;https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningTask&quot; = 'OralCancerScreeningTask'\n\nuses &quot;http://hl7.org/fhir/StructureDefinition/Bundle&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Parameters&quot; as source\n\n\ngroup OralCancerScreeningTask(source src : Parameters, target bundle: Bundle) {\n    src -&gt;  evaluate(src, $this.parameter.where(name='context').resource) as encounter,\n            evaluate(src, $this.parameter.where(name='resource').resource) as task,\n            bundle.entry as bundleTaskEntry, bundleTaskEntry.resource = task,\n            bundle.entry as bundleEncounterEntry, bundleEncounterEntry.resource = encounter\n            then TransformEncounter(bundleEncounterEntry,encounter), TransformTask(bundleTaskEntry, task) &quot;rule_transform&quot; ;\n}\n\ngroup TransformTask(source input, target task: Task) {\n    input -&gt; task.id = uuid(),\n            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-task',\n            task.status = 'requested',\n            task.intent = 'order',\n            task.priority = 'routine',\n            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),\n            task.description = 'Task for specialist to screen patient',\n            task.authoredOn = evaluate(input ,now()),\n            task.lastModified = evaluate(input ,now()) &quot;rule_task_map&quot;;\n}\n\ngroup TransformEncounter(source input , target encounter: Encounter) {\n    input -&gt; encounter.status = 'in-progress' &quot;rule_encounter_map&quot;;\n}</pre></div>"
+  },
+  "url" : "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningTask",
+  "name" : "OralCancerScreeningTask",
+  "structure" : [{
+    "url" : "http://hl7.org/fhir/StructureDefinition/Bundle",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Parameters",
+    "mode" : "source"
+  }],
+  "group" : [{
+    "name" : "OralCancerScreeningTask",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "Parameters",
+      "mode" : "source"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_transform",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "contextType" : "variable",
+        "variable" : "encounter",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "$this.parameter.where(name = 'context').resource"
+        }]
+      },
+      {
+        "contextType" : "variable",
+        "variable" : "task",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "$this.parameter.where(name = 'resource').resource"
+        }]
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "bundleTaskEntry"
+      },
+      {
+        "context" : "bundleTaskEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "task"
+        }]
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "bundleEncounterEntry"
+      },
+      {
+        "context" : "bundleEncounterEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "encounter"
+        }]
+      }],
+      "dependent" : [{
+        "name" : "TransformEncounter",
+        "variable" : ["bundleEncounterEntry",
+        "encounter"]
+      },
+      {
+        "name" : "TransformTask",
+        "variable" : ["bundleTaskEntry",
+        "task"]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformTask",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "input",
+      "mode" : "source"
+    },
+    {
+      "name" : "task",
+      "type" : "Task",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_task_map",
+      "source" : [{
+        "context" : "input"
+      }],
+      "target" : [{
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "instantiatesUri",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-task"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "requested"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "intent",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "order"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "priority",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "routine"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://hl7.org/fhir/CodeSystem/task-code"
+        },
+        {
+          "valueString" : "fulfill"
+        },
+        {
+          "valueString" : "Fulfill the focal request"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "description",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "Task for specialist to screen patient"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "authoredOn",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "input"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      },
+      {
+        "context" : "task",
+        "contextType" : "variable",
+        "element" : "lastModified",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "input"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformEncounter",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "input",
+      "mode" : "source"
+    },
+    {
+      "name" : "encounter",
+      "type" : "Encounter",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_encounter_map",
+      "source" : [{
+        "context" : "input"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "in-progress"
+        }]
+      }]
+    }]
+  }]
+}

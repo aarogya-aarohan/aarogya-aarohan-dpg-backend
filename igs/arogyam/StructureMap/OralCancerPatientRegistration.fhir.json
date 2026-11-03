@@ -1,0 +1,4004 @@
+{
+  "resourceType" : "StructureMap",
+  "id" : "OralCancerPatientRegistration",
+  "text" : {
+    "status" : "additional",
+    "div" : "<div xmlns=\"http://www.w3.org/1999/xhtml\"><pre>map &quot;https://midas.iisc.ac.in/fhir/StructureMap/OralCancerPatientRegistration&quot; = 'OralCancerPatientRegistration'\nuses &quot;http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse&quot; as source\nuses &quot;http://hl7.org/fhir/StructureDefinition/Bundle&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Patient&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Observation&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Encounter&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/Media&quot; as target\n\n\ngroup OralCancerPatientRegistration(source src: QuestionnaireResponse, target bundle: Bundle) {\n    // Generate a UUID for the Bundle\n    src -&gt; bundle.id = uuid() &quot;rule_bundle_id&quot;;\n\n    // Set Bundle type to 'collection'\n    src -&gt; bundle.type = 'collection' &quot;rule_bundle_type&quot;;\n\n    // Create a Patient resource\n    src -&gt; bundle.entry as entry, entry.resource = create('Patient') as patient, bundle.entry as encounterEntry, encounterEntry.resource = create(&quot;Encounter&quot;) as encounter then\n        TransformPatient(src, patient),\n        TransformPatientEncounter(src, patient, encounter),\n        TransformPatientResource(src, patient, encounter, bundle) &quot;rule_extract_patient_resources&quot;;\n}\n\ngroup TransformPatient(source src: QuestionnaireResponse , target patient:Patient) {\n\n    // Generate a UUID for the Patient id\n    src -&gt; patient.id = uuid() &quot;generate_patient_id&quot;;\n    src -&gt; patient.identifier as pid then {\n        src -&gt; pid.use = 'secondary' &quot;rule_identifier_pid_use&quot;;\n        src -&gt; pid.system = 'https://midas.iisc.ac.in/fhir/identifier/patient-id' &quot;rule_identifier_pid_system&quot;;\n        src -&gt; pid.value = evaluate(src, (uuid().replace('-','').replace('a','1').replace('b','2').replace('c','3').replace('d','4').replace('e','5').replace('f','6')).substring(0,8)) &quot;rule_identifier_pid_value&quot;;\n    } &quot;rule_patient_auto_identifier&quot;;\n\n    src -&gt; patient.active = true &quot;rule_patient_active&quot;;\n    src -&gt; patient.extension as registrationDate,\n            registrationDate.url = 'https://midas.iisc.ac.in/fhir/StructureDefinition/patient-registraion-date',\n            registrationDate.value = evaluate(src, now()) &quot;patient_registration&quot;;\n\n    src.author as aut -&gt; patient.generalPractitioner = aut &quot;rule_patient_pra&quot;;\n\n    src.item as basicInfo where(linkId = 'basic-info-group') -&gt; patient.name = create(&quot;HumanName&quot;) as name, patient.address = create(&quot;Address&quot;) as address then {\n\n        // Extract name\n        basicInfo.item as item where(linkId = 'patient-name-given') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; name.given = val 'rule_patient_name_given';\n            };\n        };\n\n        basicInfo.item as item where(linkId = 'patient-name-family') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; name.family = val 'rule_patient_name_family';\n            };\n        };\n\n\n        // Extract date of birth\n        basicInfo.item as item where(linkId = 'patient-age-by-dob') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; patient.birthDate = val 'rule_patient_dob_from_dob';\n            };\n        };\n\n        // Extract date of birth from age\n        basicInfo.item as item where(linkId = 'patient-age-by-years') then {\n            item.answer first as answer then {\n                answer.value  as val -&gt; patient.birthDate = evaluate(val, today() - (($this * 366).toString().combine('days').join(' ').toQuantity())) 'rule_patient_dob_from_age';\n            };\n        };\n\n        // Extract gender\n        basicInfo.item as item where(linkId = 'patient-gender') then {\n            item.answer first as answer then {\n                answer.value as coding then {\n                    coding.code as val -&gt; patient.gender = val 'rule_patient_gender';\n                };\n            };\n        };\n\n        // Extract ABHA Id as identifier\n        basicInfo.item as item where(linkId = 'patient-identifier-abha') then {\n            item.answer first as answer -&gt; patient.identifier = create(&quot;Identifier&quot;) as id, id.use='official' then {\n                answer.value -&gt; id.type = cc('https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code','ABHA', 'Ayushman Bharat Health Account (ABHA) ID') &quot;rule_identifier_abdm_type&quot;;\n                answer.value -&gt; id.system = 'https://fhir.aicoe.triveous.tech/fhir/StructureDefinition/PatientIdentifier' &quot;rule_identifier_abdm_system&quot;;\n                answer.value as val -&gt; id.value = val &quot;rule_identifier_abdm_val&quot;;\n            };\n        };\n\n        // Extract Primary Contact\n        basicInfo.item as item where(linkId = 'patient-contact-primary') then {\n            item.answer first as answer -&gt; patient.telecom = create(&quot;ContactPoint&quot;) as contact then {\n                answer.value -&gt; contact.system = 'phone' &quot;rule_patient_primary_contact_system&quot;;\n                answer.value -&gt; contact.use = 'mobile' &quot;rule_patient_primary_contact_use&quot;;\n                // answer.value -&gt; contact.rank = cast(1, &quot;positiveInt&quot;) &quot;rule_patient_primary_contact_rank&quot;;\n                answer.value as val -&gt; contact.value = val &quot;rule_patient_primary_contact_value&quot;;\n            };\n        };\n\n        // Extract Secondary Contact\n        basicInfo.item as item where(linkId = 'patient-contact-secondary') then {\n            item.answer first as answer -&gt; patient.telecom = create(&quot;ContactPoint&quot;) as contact then {\n                answer.value -&gt; contact.system = 'phone' &quot;rule_patient_secondary_contact_system&quot;;\n                answer.value -&gt; contact.use = 'mobile' &quot;rule_patient_secondary_contact_use&quot;;\n                // answer.value -&gt; contact.rank = cast(2, &quot;positiveInt&quot;) &quot;rule_patient_secondary_contact_rank&quot;;\n                answer.value as val -&gt; contact.value = val &quot;rule_patient_secondary_contact_value&quot;;\n            };\n        };\n\n        // Extract the house/locality address\n        basicInfo.item as item where(linkId = 'patient-address-house') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; address.line = val 'rule_patient_address_line';\n            };\n        };\n\n        // Extract the village/city address\n        basicInfo.item as item where(linkId = 'patient-address-village') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; address.city = val 'rule_patient_address_city';\n            };\n        };\n\n        // Extract the district address\n        basicInfo.item as item where(linkId = 'patient-address-district') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; address.district = val 'rule_patient_address_district';\n            };\n        };\n\n        // Extract the state address\n        basicInfo.item as item where(linkId = 'patient-address-state') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; address.state = val 'rule_patient_address_state';\n            };\n        };\n\n        // Extract the pincode address\n        basicInfo.item as item where(linkId = 'patient-address-pincode') then {\n            item.answer first as answer then {\n                answer.value as val -&gt; address.postalCode = val 'rule_patient_address_pincode';\n            };\n        };\n    };\n\n}\n\ngroup TransformPatientResource(source src: QuestionnaireResponse, source patient: Patient, target encounter: Encounter, target bundle: Bundle) {\n\n    src.item as habitHistory where(linkId = 'habit-history-group') then {\n\n        habitHistory.item as item where(linkId = 'patient-habit-cigarette') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n            TransformHabitHistoryCigarette(src, item, patient, encounter, observation) &quot;rule_patient_habit_history_cigarette&quot; ;\n\n        habitHistory.item as item where(linkId = 'patient-habit-tobacco') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n            TransformHabitHistoryTobacco(src, item, patient, encounter, observation) &quot;rule_patient_habit_history_tobacco&quot; ;\n\n        habitHistory.item as item where(linkId = 'patient-habit-areca') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n            TransformHabitHistoryArecaNut(src, item, patient, encounter, observation) &quot;rule_patient_habit_history_areca&quot; ;\n\n        habitHistory.item as item where(linkId = 'patient-habit-alcohol') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n            TransformHabitHistoryAlcohol(src, item, patient, encounter, observation) &quot;rule_patient_habit_history_alcohol&quot; ;\n\n        habitHistory.item as item where(linkId = 'patient-habit-alcohol-frequency') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n            TransformHabitHistoryAlcoholFrequency(src, item, patient, encounter, observation) &quot;rule_patient_habit_history_alcohol&quot; ;\n    };\n\n    src.item as screeningGroup where(linkId = 'screening-group') then {\n\n        screeningGroup.item as screeningQuestionGroup where(linkId = 'patient-screening-question-group') then {\n\n            screeningQuestionGroup.item as item where(linkId = 'patient-screening-mouth-open') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n                TransformScreeningMouth(src, item, patient, encounter, observation, bundle) &quot;rule_patient_screening_mouth_open&quot; ;\n\n            screeningQuestionGroup.item as item where(linkId = 'patient-screening-lesion') -&gt; bundle.entry as entry, entry.resource = create('Observation') as observation then\n                TransformScreeningLesion(src, item, patient, encounter, observation) &quot;rule_patient_screening_lesions&quot; ;\n        };\n    };\n\n}\n\ngroup TransformHabitHistoryCigarette(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_habit_cigarette_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_habit_cigarette_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') &quot;rule_set_obs_habit_cigarette_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '63638-1', 'Smoking status [FTND]') &quot;set_obs_habit_cigarette_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_habit_cigarette_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_habit_cigarette_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_oobs_habit_cigarette_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_oobs_habit_cigarette_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_oobs_habit_cigarette_answer_display&quot;;\n        };\n    };\n}\n\ngroup TransformHabitHistoryTobacco(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_habit_tobacco_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_habit_tobacco_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_habit_tobacco_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') &quot;rule_set_obs_habit_tobacco_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '39240-7', 'Tobacco use status CPHS') &quot;set_obs_habit_tobacco_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_habit_tobacco_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_habit_tobacco_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_habit_tobacco_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_habit_tobacco_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_habit_tobacco_answer_display&quot;;\n        };\n    };\n\n}\n\ngroup TransformHabitHistoryArecaNut(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_habit_areca_nut_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_habit_areca_nut_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_habit_areca_nut_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') &quot;rule_set_obs_habit_areca_nut_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '64004-5', 'Tobacco product [PhenX]') &quot;set_obs_habit_areca_nut_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_habit_areca_nut_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_habit_areca_nut_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding  then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_habit_areca_nut_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_habit_areca_nut_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_habit_areca_nut_answer_display&quot;;\n        };\n    };\n}\n\ngroup TransformHabitHistoryAlcohol(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_habit_alcohol_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_habit_alcohol_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_habit_alcohol_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') &quot;rule_set_obs_habit_alcohol_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '74205-6', 'Alcohol use [NTDS]') &quot;set_obs_habit_alcohol_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_habit_alcohol_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_habit_alcohol_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding  then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_habit_alcohol_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_habit_alcohol_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_habit_alcohol_answer_display&quot;;\n        };\n    };\n\n}\n\ngroup TransformHabitHistoryAlcoholFrequency(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_habit_alcohol_frequency_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_habit_alcohol_frequency_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_habit_alcohol_frequency_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') &quot;rule_set_obs_habit_alcohol_frequency_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '62559-0', 'Lifetime alcohol exp proto') &quot;set_obs_habit_alcohol_frequency_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_habit_alcohol_frequency_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_habit_alcohol_frequency_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding  then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_habit_alcohol_frequency_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_habit_alcohol_frequency_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_habit_alcohol_frequency_answer_display&quot;;\n        };\n    };\n}\n\ngroup TransformScreeningLesion(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_screening_lesions_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_screening_lesions_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_screening_lesions_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'exam', 'Exam') &quot;rule_set_obs_screening_lesions_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', '62596-2', 'PhenX - oral health - oral mucosal lesions protocol 081001') &quot;set_obs_screening_lesions_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_screening_lesions_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_screening_lesions_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding  then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_screening_lesions_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_screening_lesions_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_screening_lesions_answer_display&quot;;\n        };\n    };\n}\n\ngroup TransformScreeningMouth(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation, target bundle: Bundle){\n    src -&gt; observation.id = uuid() &quot;rule_set_obs_screening_open_mouth_id&quot;;\n    src -&gt; observation.effective = evaluate(src, now()) &quot;rule_set_obs_screening_open_mouth_effective&quot;;\n    src -&gt; observation.status = 'final' &quot;rule_set_obs_screening_open_mouth_status&quot;;\n    src -&gt; observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'exam', 'Exam') &quot;rule_set_obs_screening_open_mouth_category&quot;;\n    src -&gt; observation.code = cc('http://loinc.org', 'LP232821-1', 'Open mouth') &quot;set_obs_screening_open_mouth_code&quot;;\n    patient.id as patientId log $this -&gt; observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_obs_screening_open_mouth_set_subject&quot;;\n    enc.id as encounterId log $this -&gt; observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_obs_screening_open_mouth_set_encounter&quot;;\n\n    item.answer first as answer -&gt; observation.value = create(&quot;CodeableConcept&quot;) as cc, cc.coding as coding  then {\n        answer.value as value then {\n            value.code as code -&gt; coding.code = code &quot;rule_obs_screening_open_mouth_answer_code&quot;;\n            value.system as system -&gt; coding.system = system &quot;rule_obs_screening_open_mouth_answer_system&quot;;\n            value.display as display -&gt; coding.display = display &quot;rule_obs_screening_open_mouth_answer_display&quot;;\n        };\n    };\n\n    src.item as screeningGroup where(linkId = 'screening-group') then {\n        screeningGroup.item as screeningImageGroup where(linkId = 'patient-screening-image-group') then {\n            screeningImageGroup.item as imageItem where(linkId.matches('patient-screening-image-[0-9]+-ai-result').not()) then {\n                imageItem.answer first as answer -&gt; bundle.entry as entry, entry.resource = create('Media') as media then\n                    TransformObservationMedia(src, imageItem, screeningImageGroup, patient, enc, observation, media) &quot;rule_patient_media&quot;;\n            };\n        };\n    };\n}\n\ngroup TransformPatientEncounter(source src: QuestionnaireResponse, source patient: Patient, target encounter: Encounter) {\n    src -&gt; encounter.id = uuid() &quot;rule_set_encounter_id&quot;;\n    src -&gt; encounter.status = 'triaged' &quot;rule_set_encounter_status&quot;;\n    src -&gt; encounter.class = c('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'OBSENC', 'observation encounter') &quot;rule_set_encounter_class&quot;;\n    src -&gt; encounter.priority = cc('http://terminology.hl7.org/CodeSystem/v3-ActPriority', 'R', 'routine') &quot;rule_set_encounter_priority&quot;;\n    src -&gt; encounter.period = create(&quot;Period&quot;) as period then {\n        src -&gt; period.start = evaluate(src, now()) &quot;rule_encounter_start&quot;;\n        src -&gt; period.end = evaluate(src, now()) &quot;rule_encounter_end&quot;;\n    } &quot;rule_encounter_period&quot;;\n\n    src.author as author-&gt; encounter.participant as p,\n        p.individual = author,\n        p.type = cc('https://midas.iisc.ac.in/fhir/CodeSystem/treatment','pre-screener','Screening') &quot;rule_enc_parti&quot;;\n\n    patient.id as patientId log $this -&gt; encounter.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_encounter_subject&quot;;\n\n    src.item as basicInfo where(linkId = 'basic-info-group') -&gt; encounter.location as l, l.location = create('Reference') as location then {\n        // Extract location type\n        basicInfo.item as item where(linkId = 'location-physical-type') then {\n            item.answer first as answer then {\n                answer.value as coding where(code = 'field') then {\n                    coding -&gt; location.reference = evaluate(patient, 'Location/physical-location-field') &quot;set_rule_enc_location_field&quot;;\n                } &quot;rule_enc_location_field&quot;;\n\n                answer.value as coding where(code = 'hospital') then {\n                    coding -&gt; location.reference = evaluate(patient, 'Location/physical-location-hospital') &quot;set_rule_enc_location_hospital&quot;;\n                } &quot;rule_enc_location_hospital&quot;;\n            };\n        };\n    };\n\n}\n\ngroup TransformObservationMedia(source src: QuestionnaireResponse, source item: BackboneElement, source screeningImageGroup: BackboneElement, source patient: Patient, source encounter: Encounter, source observation: Observation, target media: media) {\n\n    item -&gt; media.id = uuid() &quot;rule_set_media_id&quot;;\n    item -&gt; media.status = 'preparation' &quot;rule_set_media_status&quot;;\n    item -&gt; media.type = cc('http://terminology.hl7.org/CodeSystem/media-type','image', 'Image') &quot;rule_set_media_type&quot;;\n    item -&gt; media.bodySite = cc('http://www.snomed.org','113277000', 'Oral mucous membrane structure') &quot;rule_set_media_body_site&quot;;\n    item -&gt; media.view = cc('http://nema.org/dicom/dicm','XC', 'External-camera Photography') &quot;rule_set_media_view&quot;;\n    src.author as author -&gt; media.operator = author &quot;rule_media_operator&quot;;\n\n    item.answer first as answer then {\n        answer.value as attachment -&gt; media.content = attachment then {\n            attachment.creation as createdDateTime -&gt; media.created = createdDateTime &quot;rule_set_media_attachment&quot;;\n        };\n    };\n\n    item.linkId as imageLinkId then {\n        screeningImageGroup.item as aiItem where(linkId = (imageLinkId + '-ai-result')) then {\n            aiItem.answer first as aiAnswer then {\n                aiAnswer.value as aiResult -&gt; media.note = create('Annotation') as note then {\n                    aiResult -&gt; note.text = aiResult &quot;rule_set_media_ai_result&quot;;\n                } &quot;rule_media_ai_result_annotation&quot;;\n            };\n        };\n    };\n\n    patient.id as patientId log $this -&gt; media.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) &quot;rule_media_subject&quot;;\n    encounter.id as encounterId log $this -&gt; media.encounter = create('Reference') as subject, subject.reference = evaluate(encounterId, 'Encounter/' + $this) &quot;rule_media_encounter&quot;;\n    observation.id as observationId log $this -&gt; media.partOf = create('Reference') as subject, subject.reference = evaluate(observationId, 'Observation/' + $this) &quot;rule_media_observation&quot;;\n}</pre></div>"
+  },
+  "url" : "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerPatientRegistration",
+  "name" : "OralCancerPatientRegistration",
+  "structure" : [{
+    "url" : "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse",
+    "mode" : "source"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Bundle",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Patient",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Observation",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Encounter",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/Media",
+    "mode" : "target"
+  }],
+  "group" : [{
+    "name" : "OralCancerPatientRegistration",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_bundle_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_bundle_type",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "type",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "collection"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_extract_patient_resources",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "entry"
+      },
+      {
+        "context" : "entry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "variable" : "patient",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Patient"
+        }]
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "encounterEntry"
+      },
+      {
+        "context" : "encounterEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Encounter"
+        }]
+      }],
+      "dependent" : [{
+        "name" : "TransformPatient",
+        "variable" : ["src",
+        "patient"]
+      },
+      {
+        "name" : "TransformPatientEncounter",
+        "variable" : ["src",
+        "patient",
+        "encounter"]
+      },
+      {
+        "name" : "TransformPatientResource",
+        "variable" : ["src",
+        "patient",
+        "encounter",
+        "bundle"]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformPatient",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "generate_patient_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_patient_auto_identifier",
+      "source" : [
+        {
+          "context" : "src"
+        }
+      ],
+      "target" : [
+        {
+          "context" : "patient",
+          "contextType" : "variable",
+          "element" : "identifier",
+          "variable" : "pid"
+        }
+      ],
+      "rule" : [
+        {
+          "name" : "rule_identifier_pid_use",
+          "source" : [
+            {
+              "context" : "src"
+            }
+          ],
+          "target" : [
+            {
+              "context" : "pid",
+              "contextType" : "variable",
+              "element" : "use",
+              "transform" : "copy",
+              "parameter" : [
+                {
+                  "valueString" : "secondary"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name" : "rule_identifier_pid_system",
+          "source" : [
+            {
+              "context" : "src"
+            }
+          ],
+          "target" : [
+            {
+              "context" : "pid",
+              "contextType" : "variable",
+              "element" : "system",
+              "transform" : "copy",
+              "parameter" : [
+                {
+                  "valueString" : "https://midas.iisc.ac.in/fhir/identifier/patient-id"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name" : "rule_identifier_pid_read_item",
+          "source" : [
+            {
+              "context" : "src",
+              "element" : "item",
+              "variable" : "idItem",
+              "condition" : "(linkId = 'aa-reference-id')"
+            }
+          ],
+          "rule" : [
+            {
+              "name" : "rule_identifier_pid_answer",
+              "source" : [
+                {
+                  "context" : "idItem",
+                  "element" : "answer",
+                  "listMode" : "first",
+                  "variable" : "answer"
+                }
+              ],
+              "rule" : [
+                {
+                  "name" : "rule_identifier_pid_value",
+                  "source" : [
+                    {
+                      "context" : "answer",
+                      "element" : "value",
+                      "variable" : "val"
+                    }
+                  ],
+                  "target" : [
+                    {
+                      "context" : "pid",
+                      "contextType" : "variable",
+                      "element" : "value",
+                      "transform" : "copy",
+                      "parameter" : [
+                        {
+                          "valueId" : "val"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name" : "rule_patient_active",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "active",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueBoolean" : true
+        }]
+      }]
+    },
+    {
+      "name" : "patient_registration",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "extension",
+        "variable" : "registrationDate"
+      },
+      {
+        "context" : "registrationDate",
+        "contextType" : "variable",
+        "element" : "url",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "https://midas.iisc.ac.in/fhir/StructureDefinition/patient-registraion-date"
+        }]
+      },
+      {
+        "context" : "registrationDate",
+        "contextType" : "variable",
+        "element" : "value",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_patient_pra",
+      "source" : [{
+        "context" : "src",
+        "element" : "author",
+        "variable" : "aut"
+      }],
+      "target" : [{
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "generalPractitioner",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "aut"
+        }]
+      }]
+    },
+    {
+      "name" : "item",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "basicInfo",
+        "condition" : "(linkId = 'basic-info-group')"
+      }],
+      "target" : [{
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "name",
+        "variable" : "name",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "HumanName"
+        }]
+      },
+      {
+        "context" : "patient",
+        "contextType" : "variable",
+        "element" : "address",
+        "variable" : "address",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Address"
+        }]
+      }],
+      "rule" : [{
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-name-given')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_name_given",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "name",
+              "contextType" : "variable",
+              "element" : "given",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-name-family')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_name_family",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "name",
+              "contextType" : "variable",
+              "element" : "family",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-age-by-dob')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_dob_from_dob",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "patient",
+              "contextType" : "variable",
+              "element" : "birthDate",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-age-by-years')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_dob_from_age",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "patient",
+              "contextType" : "variable",
+              "element" : "birthDate",
+              "transform" : "evaluate",
+              "parameter" : [{
+                "valueId" : "val"
+              },
+              {
+                "valueString" : "today() - (($this * 366).toString().combine('days').join(' ').toQuantity())"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-gender')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "value",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "coding"
+            }],
+            "rule" : [{
+              "name" : "rule_patient_gender",
+              "source" : [{
+                "context" : "coding",
+                "element" : "code",
+                "variable" : "val"
+              }],
+              "target" : [{
+                "context" : "patient",
+                "contextType" : "variable",
+                "element" : "gender",
+                "transform" : "copy",
+                "parameter" : [{
+                  "valueId" : "val"
+                }]
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-identifier-abha')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "patient",
+            "contextType" : "variable",
+            "element" : "identifier",
+            "variable" : "id",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Identifier"
+            }]
+          },
+          {
+            "context" : "id",
+            "contextType" : "variable",
+            "element" : "use",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "official"
+            }]
+          }],
+          "rule" : [{
+            "name" : "rule_identifier_abdm_type",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "id",
+              "contextType" : "variable",
+              "element" : "type",
+              "transform" : "cc",
+              "parameter" : [{
+                "valueString" : "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code"
+              },
+              {
+                "valueString" : "ABHA"
+              },
+              {
+                "valueString" : "Ayushman Bharat Health Account (ABHA) ID"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_identifier_abdm_system",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "id",
+              "contextType" : "variable",
+              "element" : "system",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueString" : "https://fhir.aicoe.triveous.tech/fhir/StructureDefinition/PatientIdentifier"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_identifier_abdm_val",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "id",
+              "contextType" : "variable",
+              "element" : "value",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-contact-primary')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "patient",
+            "contextType" : "variable",
+            "element" : "telecom",
+            "variable" : "contact",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "ContactPoint"
+            }]
+          }],
+          "rule" : [{
+            "name" : "rule_patient_primary_contact_system",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "system",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueString" : "phone"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_patient_primary_contact_use",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "use",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueString" : "mobile"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_patient_primary_contact_value",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "value",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-contact-secondary')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "patient",
+            "contextType" : "variable",
+            "element" : "telecom",
+            "variable" : "contact",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "ContactPoint"
+            }]
+          }],
+          "rule" : [{
+            "name" : "rule_patient_secondary_contact_system",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "system",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueString" : "phone"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_patient_secondary_contact_use",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "use",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueString" : "mobile"
+              }]
+            }]
+          },
+          {
+            "name" : "rule_patient_secondary_contact_value",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "contact",
+              "contextType" : "variable",
+              "element" : "value",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-address-house')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_address_line",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "address",
+              "contextType" : "variable",
+              "element" : "line",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-address-village')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_address_city",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "address",
+              "contextType" : "variable",
+              "element" : "city",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-address-district')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_address_district",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "address",
+              "contextType" : "variable",
+              "element" : "district",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-address-state')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_address_state",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "address",
+              "contextType" : "variable",
+              "element" : "state",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-address-pincode')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_patient_address_pincode",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "val"
+            }],
+            "target" : [{
+              "context" : "address",
+              "contextType" : "variable",
+              "element" : "postalCode",
+              "transform" : "copy",
+              "parameter" : [{
+                "valueId" : "val"
+              }]
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformPatientResource",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "encounter",
+      "type" : "Encounter",
+      "mode" : "target"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "item",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "habitHistory",
+        "condition" : "(linkId = 'habit-history-group')"
+      }],
+      "rule" : [{
+        "name" : "rule_patient_habit_history_cigarette",
+        "source" : [{
+          "context" : "habitHistory",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-habit-cigarette')"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "entry"
+        },
+        {
+          "context" : "entry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "observation",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Observation"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "TransformHabitHistoryCigarette",
+          "variable" : ["src",
+          "item",
+          "patient",
+          "encounter",
+          "observation"]
+        }]
+      },
+      {
+        "name" : "rule_patient_habit_history_tobacco",
+        "source" : [{
+          "context" : "habitHistory",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-habit-tobacco')"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "entry"
+        },
+        {
+          "context" : "entry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "observation",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Observation"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "TransformHabitHistoryTobacco",
+          "variable" : ["src",
+          "item",
+          "patient",
+          "encounter",
+          "observation"]
+        }]
+      },
+      {
+        "name" : "rule_patient_habit_history_areca",
+        "source" : [{
+          "context" : "habitHistory",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-habit-areca')"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "entry"
+        },
+        {
+          "context" : "entry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "observation",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Observation"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "TransformHabitHistoryArecaNut",
+          "variable" : ["src",
+          "item",
+          "patient",
+          "encounter",
+          "observation"]
+        }]
+      },
+      {
+        "name" : "rule_patient_habit_history_alcohol",
+        "source" : [{
+          "context" : "habitHistory",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-habit-alcohol')"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "entry"
+        },
+        {
+          "context" : "entry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "observation",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Observation"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "TransformHabitHistoryAlcohol",
+          "variable" : ["src",
+          "item",
+          "patient",
+          "encounter",
+          "observation"]
+        }]
+      },
+      {
+        "name" : "rule_patient_habit_history_alcohol",
+        "source" : [{
+          "context" : "habitHistory",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'patient-habit-alcohol-frequency')"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "entry"
+        },
+        {
+          "context" : "entry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "observation",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Observation"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "TransformHabitHistoryAlcoholFrequency",
+          "variable" : ["src",
+          "item",
+          "patient",
+          "encounter",
+          "observation"]
+        }]
+      }]
+    },
+    {
+      "name" : "item",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "screeningGroup",
+        "condition" : "(linkId = 'screening-group')"
+      }],
+      "rule" : [{
+        "name" : "item",
+        "source" : [{
+          "context" : "screeningGroup",
+          "element" : "item",
+          "variable" : "screeningQuestionGroup",
+          "condition" : "(linkId = 'patient-screening-question-group')"
+        }],
+        "rule" : [{
+          "name" : "rule_patient_screening_mouth_open",
+          "source" : [{
+            "context" : "screeningQuestionGroup",
+            "element" : "item",
+            "variable" : "item",
+            "condition" : "(linkId = 'patient-screening-mouth-open')"
+          }],
+          "target" : [{
+            "context" : "bundle",
+            "contextType" : "variable",
+            "element" : "entry",
+            "variable" : "entry"
+          },
+          {
+            "context" : "entry",
+            "contextType" : "variable",
+            "element" : "resource",
+            "variable" : "observation",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Observation"
+            }]
+          }],
+          "dependent" : [{
+            "name" : "TransformScreeningMouth",
+            "variable" : ["src",
+            "item",
+            "patient",
+            "encounter",
+            "observation",
+            "bundle"]
+          }]
+        },
+        {
+          "name" : "rule_patient_screening_lesions",
+          "source" : [{
+            "context" : "screeningQuestionGroup",
+            "element" : "item",
+            "variable" : "item",
+            "condition" : "(linkId = 'patient-screening-lesion')"
+          }],
+          "target" : [{
+            "context" : "bundle",
+            "contextType" : "variable",
+            "element" : "entry",
+            "variable" : "entry"
+          },
+          {
+            "context" : "entry",
+            "contextType" : "variable",
+            "element" : "resource",
+            "variable" : "observation",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Observation"
+            }]
+          }],
+          "dependent" : [{
+            "name" : "TransformScreeningLesion",
+            "variable" : ["src",
+            "item",
+            "patient",
+            "encounter",
+            "observation"]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformHabitHistoryCigarette",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_habit_cigarette_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_cigarette_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_cigarette_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "social-history"
+        },
+        {
+          "valueString" : "Social History"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_habit_cigarette_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "63638-1"
+        },
+        {
+          "valueString" : "Smoking status [FTND]"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_cigarette_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_cigarette_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_oobs_habit_cigarette_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_oobs_habit_cigarette_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_oobs_habit_cigarette_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformHabitHistoryTobacco",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_habit_tobacco_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_tobacco_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_tobacco_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_tobacco_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "social-history"
+        },
+        {
+          "valueString" : "Social History"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_habit_tobacco_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "39240-7"
+        },
+        {
+          "valueString" : "Tobacco use status CPHS"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_tobacco_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_tobacco_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_habit_tobacco_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_tobacco_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_tobacco_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformHabitHistoryArecaNut",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_habit_areca_nut_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_areca_nut_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_areca_nut_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_areca_nut_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "social-history"
+        },
+        {
+          "valueString" : "Social History"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_habit_areca_nut_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "64004-5"
+        },
+        {
+          "valueString" : "Tobacco product [PhenX]"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_areca_nut_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_areca_nut_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_habit_areca_nut_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_areca_nut_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_areca_nut_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformHabitHistoryAlcohol",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_habit_alcohol_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "social-history"
+        },
+        {
+          "valueString" : "Social History"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_habit_alcohol_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "74205-6"
+        },
+        {
+          "valueString" : "Alcohol use [NTDS]"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_alcohol_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_alcohol_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_habit_alcohol_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_alcohol_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_alcohol_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformHabitHistoryAlcoholFrequency",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_habit_alcohol_frequency_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_frequency_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_frequency_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_habit_alcohol_frequency_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "social-history"
+        },
+        {
+          "valueString" : "Social History"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_habit_alcohol_frequency_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "62559-0"
+        },
+        {
+          "valueString" : "Lifetime alcohol exp proto"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_alcohol_frequency_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_habit_alcohol_frequency_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_habit_alcohol_frequency_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_alcohol_frequency_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_habit_alcohol_frequency_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformScreeningLesion",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_screening_lesions_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_lesions_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_lesions_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_lesions_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "exam"
+        },
+        {
+          "valueString" : "Exam"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_screening_lesions_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "62596-2"
+        },
+        {
+          "valueString" : "PhenX - oral health - oral mucosal lesions protocol 081001"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_screening_lesions_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_screening_lesions_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_screening_lesions_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_screening_lesions_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_screening_lesions_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformScreeningMouth",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "item",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "enc",
+      "type" : "Encounter",
+      "mode" : "source"
+    },
+    {
+      "name" : "observation",
+      "type" : "Observation",
+      "mode" : "target"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_obs_screening_open_mouth_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_open_mouth_effective",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "effective",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "src"
+        },
+        {
+          "valueString" : "now()"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_open_mouth_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "final"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_obs_screening_open_mouth_category",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "category",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/observation-category"
+        },
+        {
+          "valueString" : "exam"
+        },
+        {
+          "valueString" : "Exam"
+        }]
+      }]
+    },
+    {
+      "name" : "set_obs_screening_open_mouth_code",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "code",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://loinc.org"
+        },
+        {
+          "valueString" : "LP232821-1"
+        },
+        {
+          "valueString" : "Open mouth"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_screening_open_mouth_set_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_obs_screening_open_mouth_set_encounter",
+      "source" : [{
+        "context" : "enc",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "encounter",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "target" : [{
+        "context" : "observation",
+        "contextType" : "variable",
+        "element" : "value",
+        "variable" : "cc",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "CodeableConcept"
+        }]
+      },
+      {
+        "context" : "cc",
+        "contextType" : "variable",
+        "element" : "coding",
+        "variable" : "coding"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "rule" : [{
+          "name" : "rule_obs_screening_open_mouth_answer_code",
+          "source" : [{
+            "context" : "value",
+            "element" : "code",
+            "variable" : "code"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "code",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "code"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_screening_open_mouth_answer_system",
+          "source" : [{
+            "context" : "value",
+            "element" : "system",
+            "variable" : "system"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "system",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "system"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_obs_screening_open_mouth_answer_display",
+          "source" : [{
+            "context" : "value",
+            "element" : "display",
+            "variable" : "display"
+          }],
+          "target" : [{
+            "context" : "coding",
+            "contextType" : "variable",
+            "element" : "display",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "display"
+            }]
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "item",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "screeningGroup",
+        "condition" : "(linkId = 'screening-group')"
+      }],
+      "rule" : [{
+        "name" : "item",
+        "source" : [{
+          "context" : "screeningGroup",
+          "element" : "item",
+          "variable" : "screeningImageGroup",
+          "condition" : "(linkId = 'patient-screening-image-group')"
+        }],
+        "rule" : [
+          {
+            "name" : "item",
+            "source" : [
+              {
+                "context" : "screeningImageGroup",
+                "element" : "item",
+                "variable" : "imageItem",
+                "condition" : "(linkId.matches('patient-screening-image-[0-9]+-ai-result').not())"
+              }
+            ],
+            "rule" : [
+              {
+                "name" : "rule_patient_media",
+                "source" : [
+                  {
+                    "context" : "imageItem",
+                    "element" : "answer",
+                    "listMode" : "first",
+                    "variable" : "answer"
+                  }
+                ],
+                "target" : [
+                  {
+                    "context" : "bundle",
+                    "contextType" : "variable",
+                    "element" : "entry",
+                    "variable" : "entry"
+                  },
+                  {
+                    "context" : "entry",
+                    "contextType" : "variable",
+                    "element" : "resource",
+                    "variable" : "media",
+                    "transform" : "create",
+                    "parameter" : [
+                      {
+                        "valueString" : "Media"
+                      }
+                    ]
+                  }
+                ],
+                "dependent" : [
+                  {
+                    "name" : "TransformObservationMedia",
+                    "variable" : [
+                      "src",
+                      "imageItem",
+                      "screeningImageGroup",
+                      "patient",
+                      "enc",
+                      "observation",
+                      "media"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformPatientEncounter",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "patient",
+      "type" : "Patient",
+      "mode" : "source"
+    },
+    {
+      "name" : "encounter",
+      "type" : "Encounter",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_set_encounter_id",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_encounter_status",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "triaged"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_encounter_class",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "class",
+        "transform" : "c",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        {
+          "valueString" : "OBSENC"
+        },
+        {
+          "valueString" : "observation encounter"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_encounter_priority",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "priority",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/v3-ActPriority"
+        },
+        {
+          "valueString" : "R"
+        },
+        {
+          "valueString" : "routine"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_encounter_period",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "period",
+        "variable" : "period",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Period"
+        }]
+      }],
+      "rule" : [{
+        "name" : "rule_encounter_start",
+        "source" : [{
+          "context" : "src"
+        }],
+        "target" : [{
+          "context" : "period",
+          "contextType" : "variable",
+          "element" : "start",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "now()"
+          }]
+        }]
+      },
+      {
+        "name" : "rule_encounter_end",
+        "source" : [{
+          "context" : "src"
+        }],
+        "target" : [{
+          "context" : "period",
+          "contextType" : "variable",
+          "element" : "end",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "now()"
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "rule_enc_parti",
+      "source" : [{
+        "context" : "src",
+        "element" : "author",
+        "variable" : "author"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "participant",
+        "variable" : "p"
+      },
+      {
+        "context" : "p",
+        "contextType" : "variable",
+        "element" : "individual",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "author"
+        }]
+      },
+      {
+        "context" : "p",
+        "contextType" : "variable",
+        "element" : "type",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "https://midas.iisc.ac.in/fhir/CodeSystem/treatment"
+        },
+        {
+          "valueString" : "pre-screener"
+        },
+        {
+          "valueString" : "Screening"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_encounter_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_encounter_ai_result",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "aiResultItem",
+        "condition" : "(linkId = 'case-level-ai-result')"
+      }],
+      "rule" : [{
+        "name" : "rule_encounter_ai_result_answer",
+        "source" : [{
+          "context" : "aiResultItem",
+          "element" : "answer",
+          "listMode" : "first",
+          "variable" : "answer"
+        }],
+        "rule" : [{
+          "name" : "rule_encounter_ai_result_value",
+          "source" : [{
+            "context" : "answer",
+            "element" : "value",
+            "variable" : "aiResultVal"
+          }],
+          "target" : [{
+            "context" : "encounter",
+            "contextType" : "variable",
+            "element" : "extension",
+            "variable" : "ext",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Extension"
+            }]
+          },
+          {
+            "context" : "ext",
+            "contextType" : "variable",
+            "element" : "url",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "https://midas.iisc.ac.in/CodeSystem/case-level-ai-result"
+            }]
+          },
+          {
+            "context" : "ext",
+            "contextType" : "variable",
+            "element" : "value",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "aiResultVal"
+            }]
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "item",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "basicInfo",
+        "condition" : "(linkId = 'basic-info-group')"
+      }],
+      "target" : [{
+        "context" : "encounter",
+        "contextType" : "variable",
+        "element" : "location",
+        "variable" : "l"
+      },
+      {
+        "context" : "l",
+        "contextType" : "variable",
+        "element" : "location",
+        "variable" : "location",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      }],
+      "rule" : [{
+        "name" : "item",
+        "source" : [{
+          "context" : "basicInfo",
+          "element" : "item",
+          "variable" : "item",
+          "condition" : "(linkId = 'location-physical-type')"
+        }],
+        "rule" : [{
+          "name" : "answer",
+          "source" : [{
+            "context" : "item",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "rule" : [{
+            "name" : "rule_enc_location_field",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "coding",
+              "condition" : "(code = 'field')"
+            }],
+            "rule" : [{
+              "name" : "set_rule_enc_location_field",
+              "source" : [{
+                "context" : "coding"
+              }],
+              "target" : [{
+                "context" : "location",
+                "contextType" : "variable",
+                "element" : "reference",
+                "transform" : "evaluate",
+                "parameter" : [{
+                  "valueId" : "patient"
+                },
+                {
+                  "valueString" : "'Location/physical-location-field'"
+                }]
+              }]
+            }]
+          },
+          {
+            "name" : "rule_enc_location_hospital",
+            "source" : [{
+              "context" : "answer",
+              "element" : "value",
+              "variable" : "coding",
+              "condition" : "(code = 'hospital')"
+            }],
+            "rule" : [{
+              "name" : "set_rule_enc_location_hospital",
+              "source" : [{
+                "context" : "coding"
+              }],
+              "target" : [{
+                "context" : "location",
+                "contextType" : "variable",
+                "element" : "reference",
+                "transform" : "evaluate",
+                "parameter" : [{
+                  "valueId" : "patient"
+                },
+                {
+                  "valueString" : "'Location/physical-location-hospital'"
+                }]
+              }]
+            }]
+          }]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "TransformObservationMedia",
+    "typeMode" : "none",
+    "input" :     [
+      {
+        "name" : "src",
+        "type" : "QuestionnaireResponse",
+        "mode" : "source"
+      },
+      {
+        "name" : "item",
+        "type" : "BackboneElement",
+        "mode" : "source"
+      },
+      {
+        "name" : "screeningImageGroup",
+        "type" : "BackboneElement",
+        "mode" : "source"
+      },
+      {
+        "name" : "patient",
+        "type" : "Patient",
+        "mode" : "source"
+      },
+      {
+        "name" : "encounter",
+        "type" : "Encounter",
+        "mode" : "source"
+      },
+      {
+        "name" : "observation",
+        "type" : "Observation",
+        "mode" : "source"
+      },
+      {
+        "name" : "media",
+        "type" : "media",
+        "mode" : "target"
+      }
+    ],
+    "rule" : [{
+      "name" : "rule_set_media_id",
+      "source" : [{
+        "context" : "item"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "id",
+        "transform" : "uuid"
+      }]
+    },
+    {
+      "name" : "rule_set_media_status",
+      "source" : [{
+        "context" : "item"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "status",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueString" : "preparation"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_media_type",
+      "source" : [{
+        "context" : "item"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "type",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://terminology.hl7.org/CodeSystem/media-type"
+        },
+        {
+          "valueString" : "image"
+        },
+        {
+          "valueString" : "Image"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_media_body_site",
+      "source" : [{
+        "context" : "item"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "bodySite",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://www.snomed.org"
+        },
+        {
+          "valueString" : "113277000"
+        },
+        {
+          "valueString" : "Oral mucous membrane structure"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_set_media_view",
+      "source" : [{
+        "context" : "item"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "view",
+        "transform" : "cc",
+        "parameter" : [{
+          "valueString" : "http://nema.org/dicom/dicm"
+        },
+        {
+          "valueString" : "XC"
+        },
+        {
+          "valueString" : "External-camera Photography"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_media_operator",
+      "source" : [{
+        "context" : "src",
+        "element" : "author",
+        "variable" : "author"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "operator",
+        "transform" : "copy",
+        "parameter" : [{
+          "valueId" : "author"
+        }]
+      }]
+    },
+    {
+      "name" : "answer",
+      "source" : [{
+        "context" : "item",
+        "element" : "answer",
+        "listMode" : "first",
+        "variable" : "answer"
+      }],
+      "rule" : [{
+        "name" : "value",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "attachment"
+        }],
+        "target" : [{
+          "context" : "media",
+          "contextType" : "variable",
+          "element" : "content",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueId" : "attachment"
+          }]
+        }],
+        "rule" : [{
+          "name" : "rule_set_media_attachment",
+          "source" : [{
+            "context" : "attachment",
+            "element" : "creation",
+            "variable" : "createdDateTime"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "created",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "createdDateTime"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v6_prediction",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model-v6-prediction')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v6_confidence",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model-v6-confidence')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v8_prediction",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model-v8-prediction')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v8_confidence",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model-v8-confidence')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v82_prediction",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model-v82-prediction')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        },
+        {
+          "name" : "rule_media_ext_v82_confidence",
+          "source" : [{
+            "context" : "answer",
+            "element" : "extension",
+            "variable" : "ext",
+            "condition" : "(url = 'http://smartregister.org/ai-model-result/v38-model82-confidence')"
+          }],
+          "target" : [{
+            "context" : "media",
+            "contextType" : "variable",
+            "element" : "extension",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ext"
+            }]
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "linkId",
+      "source" : [
+        {
+          "context" : "item",
+          "element" : "linkId",
+          "variable" : "imageLinkId"
+        }
+      ],
+      "rule" : [
+        {
+          "name" : "item",
+          "source" : [
+            {
+              "context" : "screeningImageGroup",
+              "element" : "item",
+              "variable" : "aiItem",
+              "condition" : "(linkId = (imageLinkId + '-ai-result'))"
+            }
+          ],
+          "rule" : [
+            {
+              "name" : "answer",
+              "source" : [
+                {
+                  "context" : "aiItem",
+                  "element" : "answer",
+                  "listMode" : "first",
+                  "variable" : "aiAnswer"
+                }
+              ],
+              "rule" : [
+                {
+                  "name" : "rule_media_ai_result_annotation",
+                  "source" : [
+                    {
+                      "context" : "aiAnswer",
+                      "element" : "value",
+                      "variable" : "aiResult"
+                    }
+                  ],
+                  "target" : [
+                    {
+                      "context" : "media",
+                      "contextType" : "variable",
+                      "element" : "note",
+                      "variable" : "note",
+                      "transform" : "create",
+                      "parameter" : [
+                        {
+                          "valueString" : "Annotation"
+                        }
+                      ]
+                    }
+                  ],
+                  "rule" : [
+                    {
+                      "name" : "rule_set_media_ai_result",
+                      "source" : [
+                        {
+                          "context" : "aiResult"
+                        }
+                      ],
+                      "target" : [
+                        {
+                          "context" : "note",
+                          "contextType" : "variable",
+                          "element" : "text",
+                          "transform" : "copy",
+                          "parameter" : [
+                            {
+                              "valueId" : "aiResult"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name" : "rule_media_subject",
+      "source" : [{
+        "context" : "patient",
+        "element" : "id",
+        "variable" : "patientId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "subject",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "patientId"
+        },
+        {
+          "valueString" : "'Patient/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_media_encounter",
+      "source" : [{
+        "context" : "encounter",
+        "element" : "id",
+        "variable" : "encounterId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "encounter",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "encounterId"
+        },
+        {
+          "valueString" : "'Encounter/' + $this"
+        }]
+      }]
+    },
+    {
+      "name" : "rule_media_observation",
+      "source" : [{
+        "context" : "observation",
+        "element" : "id",
+        "variable" : "observationId",
+        "logMessage" : "$this"
+      }],
+      "target" : [{
+        "context" : "media",
+        "contextType" : "variable",
+        "element" : "partOf",
+        "variable" : "subject",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Reference"
+        }]
+      },
+      {
+        "context" : "subject",
+        "contextType" : "variable",
+        "element" : "reference",
+        "transform" : "evaluate",
+        "parameter" : [{
+          "valueId" : "observationId"
+        },
+        {
+          "valueString" : "'Observation/' + $this"
+        }]
+      }]
+    }]
+  }]
+}

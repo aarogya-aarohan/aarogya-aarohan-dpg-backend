@@ -1,0 +1,11 @@
+{
+  "resourceType": "SearchParameter",
+  "id":"PatientRegistraionDate",
+  "title": "Patient registration date",
+  "base": [ "Patient" ],
+  "status": "active",
+  "code": "registration-date",
+  "type": "date",
+  "expression": "Patient.extension('https://midas.iisc.ac.in/fhir/StructureDefinition/patient-registraion-date')",
+  "xpathUsage": "normal"
+}

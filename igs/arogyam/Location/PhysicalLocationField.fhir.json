@@ -1,0 +1,14 @@
+{
+  "resourceType": "Location",
+  "id": "physical-location-field",
+  "name": "Field/primary care",
+  "physicalType": {
+    "coding": [
+      {
+        "code": "field",
+        "system": "https://midas.iisc.ac.in/fhir/CodeSystem/location-physical-type",
+        "display": "Field/primary care"
+      }
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "resourceType": "PlanDefinition",
+  "id": "OralCancerPatientCare",
+  "url": "https://midas.iisc.ac.in/fhir/PlanDefinition/OralCancerPatientCare",
+  "version": "1",
+  "name": "Oral Cancer Patient Care",
+  "title": "Oral Cancer Patient Care",
+  "status": "active",
+  "description": "This defines the plan which handle all care for patient for post registration",
+  "contained": [
+    {
+      "resourceType": "ActivityDefinition",
+      "url": "https://midas.iisc.ac.in/fhir/ActivityDefinition/oral-cancer-screen-patient",
+      "id": "oral-cancer-screen-patient",
+      "title": "Screen patient for oral cancer",
+      "status": "active",
+      "description": "Task ordering specialist to screen the registered patient for oral cancer",
+      "kind": "Task",
+      "library": ["https://midas.iisc.ac.in/fhir/Library/OralCancerScreenPatient|1.0.0"],
+      "dynamicValue": [
+        {
+          "path": "owner",
+          "expression": {
+            "language": "text/cql-identifier",
+            "expression": "Available Specialist Reference"
+          }
+        },
+        {
+          "path": "focus",
+          "expression": {
+            "language": "text/cql-identifier",
+            "expression": "Patient Screening Questionnaire"
+          }
+        }
+      ],
+      "transform": "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningTask"
+    }
+  ],
+  "action": [
+    {
+      "prefix": "1",
+      "priority": "routine",
+      "definitionCanonical": "#oral-cancer-screen-patient"
+    }
+  ]
+}

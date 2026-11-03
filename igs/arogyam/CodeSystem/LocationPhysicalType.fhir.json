@@ -1,0 +1,25 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "location-physical-type",
+  "url": "https://midas.iisc.ac.in/fhir/CodeSystem/location-physical-type",
+  "version": "1.0.0",
+  "name": "Location Physical Type",
+  "title": "Location Physical Type",
+  "status": "active",
+  "date": "2024-06-17T00:00:00Z",
+  "description": "A CodeSystem defining various location",
+  "caseSensitive": true,
+  "content": "complete",
+  "concept": [
+    {
+      "code": "field",
+      "display": "Field/primary care",
+      "definition": "Field or Primary Care"
+    },
+    {
+      "code": "hospital",
+      "display": "Hospital",
+      "definition": "Hospital"
+    }
+  ]
+}

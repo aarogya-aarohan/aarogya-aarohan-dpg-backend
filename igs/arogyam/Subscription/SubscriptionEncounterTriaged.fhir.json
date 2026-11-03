@@ -1,0 +1,10 @@
+{
+  "resourceType": "Subscription",
+  "id": "SubscriptionEncounterTriaged",
+  "status": "active",
+  "criteria": "Encounter?status=triaged",
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "<Base Path of Arogyam Gateway Server>/api/incoming-webhook/main/encounter-change/OralCancerPatientCare"
+  }
+}

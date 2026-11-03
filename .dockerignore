@@ -1,0 +1,11 @@
+.github
+.idea
+.nx
+.vscode
+dist
+e2e
+node_modules/
+.env
+.env.sample
+.dockerignore
+Dockerfile

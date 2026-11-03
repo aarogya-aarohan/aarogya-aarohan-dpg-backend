@@ -1,0 +1,397 @@
+map "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerPatientRegistration" = 'OralCancerPatientRegistration'
+uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse" as source
+uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+uses "http://hl7.org/fhir/StructureDefinition/Patient" as target
+uses "http://hl7.org/fhir/StructureDefinition/Observation" as target
+uses "http://hl7.org/fhir/StructureDefinition/Encounter" as target
+uses "http://hl7.org/fhir/StructureDefinition/Media" as target
+
+group OralCancerPatientRegistration(source src: QuestionnaireResponse, target bundle: Bundle) {
+    // Generate a UUID for the Bundle
+    src -> bundle.id = uuid() "rule_bundle_id";
+
+    // Set Bundle type to 'collection'
+    src -> bundle.type = 'collection' "rule_bundle_type";
+
+    // Create a Patient resource
+    src -> bundle.entry as entry, entry.resource = create('Patient') as patient, bundle.entry as encounterEntry, encounterEntry.resource = create("Encounter") as encounter then
+        TransformPatient(src, patient),
+        TransformPatientEncounter(src, patient, encounter),
+        TransformPatientResource(src, patient, encounter, bundle) "rule_extract_patient_resources";
+}
+
+group TransformPatient(source src: QuestionnaireResponse , target patient:Patient) {
+
+    // Generate a UUID for the Patient id
+    src -> patient.id = uuid() "generate_patient_id";
+
+    src -> patient.identifier as pid then {
+        src -> pid.use = 'secondary' "rule_identifier_pid_use";
+        src -> pid.system = 'https://midas.iisc.ac.in/fhir/identifier/patient-id' "rule_identifier_pid_system";
+        src.item as idItem where(linkId = 'aa-reference-id') then {
+            idItem.answer first as answer then {
+                answer.value as val -> pid.value = val "rule_identifier_pid_value";
+            } "rule_identifier_pid_answer";
+        } "rule_identifier_pid_read_item";
+    } "rule_patient_auto_identifier";
+
+    src -> patient.active = true "rule_patient_active";
+    src -> patient.extension as registrationDate,
+            registrationDate.url = 'https://midas.iisc.ac.in/fhir/StructureDefinition/patient-registraion-date',
+            registrationDate.value = evaluate(src, now()) "patient_registration";
+
+    src.author as aut -> patient.generalPractitioner = aut "rule_patient_pra";
+
+    src.item as basicInfo where(linkId = 'basic-info-group') -> patient.name = create("HumanName") as name, patient.address = create("Address") as address then {
+
+        // Extract name
+        basicInfo.item as item where(linkId = 'patient-name-given') then {
+            item.answer first as answer then {
+                answer.value as val -> name.given = val 'rule_patient_name_given';
+            };
+        };
+
+        basicInfo.item as item where(linkId = 'patient-name-family') then {
+            item.answer first as answer then {
+                answer.value as val -> name.family = val 'rule_patient_name_family';
+            };
+        };
+
+
+        // Extract date of birth
+        basicInfo.item as item where(linkId = 'patient-age-by-dob') then {
+            item.answer first as answer then {
+                answer.value as val -> patient.birthDate = val 'rule_patient_dob_from_dob';
+            };
+        };
+
+        // Extract date of birth from age
+        basicInfo.item as item where(linkId = 'patient-age-by-years') then {
+            item.answer first as answer then {
+                answer.value  as val -> patient.birthDate = evaluate(val, today() - (($this * 366).toString().combine('days').join(' ').toQuantity())) 'rule_patient_dob_from_age';
+            };
+        };
+
+        // Extract gender
+        basicInfo.item as item where(linkId = 'patient-gender') then {
+            item.answer first as answer then {
+                answer.value as coding then {
+                    coding.code as val -> patient.gender = val 'rule_patient_gender';
+                };
+            };
+        };
+
+        // Extract ABHA Id as identifier
+        basicInfo.item as item where(linkId = 'patient-identifier-abha') then {
+            item.answer first as answer -> patient.identifier = create("Identifier") as id, id.use='official' then {
+                answer.value -> id.type = cc('https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code','ABHA', 'Ayushman Bharat Health Account (ABHA) ID') "rule_identifier_abdm_type";
+                answer.value -> id.system = 'https://fhir.aicoe.triveous.tech/fhir/StructureDefinition/PatientIdentifier' "rule_identifier_abdm_system";
+                answer.value as val -> id.value = val "rule_identifier_abdm_val";
+            };
+        };
+
+        // Extract Primary Contact
+        basicInfo.item as item where(linkId = 'patient-contact-primary') then {
+            item.answer first as answer -> patient.telecom = create("ContactPoint") as contact then {
+                answer.value -> contact.system = 'phone' "rule_patient_primary_contact_system";
+                answer.value -> contact.use = 'mobile' "rule_patient_primary_contact_use";
+                // answer.value -> contact.rank = cast(1, "positiveInt") "rule_patient_primary_contact_rank";
+                answer.value as val -> contact.value = val "rule_patient_primary_contact_value";
+            };
+        };
+
+        // Extract Secondary Contact
+        basicInfo.item as item where(linkId = 'patient-contact-secondary') then {
+            item.answer first as answer -> patient.telecom = create("ContactPoint") as contact then {
+                answer.value -> contact.system = 'phone' "rule_patient_secondary_contact_system";
+                answer.value -> contact.use = 'mobile' "rule_patient_secondary_contact_use";
+                // answer.value -> contact.rank = cast(2, "positiveInt") "rule_patient_secondary_contact_rank";
+                answer.value as val -> contact.value = val "rule_patient_secondary_contact_value";
+            };
+        };
+
+        // Extract the house/locality address
+        basicInfo.item as item where(linkId = 'patient-address-house') then {
+            item.answer first as answer then {
+                answer.value as val -> address.line = val 'rule_patient_address_line';
+            };
+        };
+
+        // Extract the village/city address
+        basicInfo.item as item where(linkId = 'patient-address-village') then {
+            item.answer first as answer then {
+                answer.value as val -> address.city = val 'rule_patient_address_city';
+            };
+        };
+
+        // Extract the district address
+        basicInfo.item as item where(linkId = 'patient-address-district') then {
+            item.answer first as answer then {
+                answer.value as val -> address.district = val 'rule_patient_address_district';
+            };
+        };
+
+        // Extract the state address
+        basicInfo.item as item where(linkId = 'patient-address-state') then {
+            item.answer first as answer then {
+                answer.value as val -> address.state = val 'rule_patient_address_state';
+            };
+        };
+
+        // Extract the pincode address
+        basicInfo.item as item where(linkId = 'patient-address-pincode') then {
+            item.answer first as answer then {
+                answer.value as val -> address.postalCode = val 'rule_patient_address_pincode';
+            };
+        };
+    };
+
+}
+
+group TransformPatientResource(source src: QuestionnaireResponse, source patient: Patient, target encounter: Encounter, target bundle: Bundle) {
+
+    src.item as habitHistory where(linkId = 'habit-history-group') then {
+
+        habitHistory.item as item where(linkId = 'patient-habit-cigarette') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+            TransformHabitHistoryCigarette(src, item, patient, encounter, observation) "rule_patient_habit_history_cigarette" ;
+
+        habitHistory.item as item where(linkId = 'patient-habit-tobacco') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+            TransformHabitHistoryTobacco(src, item, patient, encounter, observation) "rule_patient_habit_history_tobacco" ;
+
+        habitHistory.item as item where(linkId = 'patient-habit-areca') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+            TransformHabitHistoryArecaNut(src, item, patient, encounter, observation) "rule_patient_habit_history_areca" ;
+
+        habitHistory.item as item where(linkId = 'patient-habit-alcohol') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+            TransformHabitHistoryAlcohol(src, item, patient, encounter, observation) "rule_patient_habit_history_alcohol" ;
+
+        habitHistory.item as item where(linkId = 'patient-habit-alcohol-frequency') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+            TransformHabitHistoryAlcoholFrequency(src, item, patient, encounter, observation) "rule_patient_habit_history_alcohol" ;
+    };
+
+    src.item as screeningGroup where(linkId = 'screening-group') then {
+
+        screeningGroup.item as screeningQuestionGroup where(linkId = 'patient-screening-question-group') then {
+
+            screeningQuestionGroup.item as item where(linkId = 'patient-screening-mouth-open') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+                TransformScreeningMouth(src, item, patient, encounter, observation, bundle) "rule_patient_screening_mouth_open" ;
+
+            screeningQuestionGroup.item as item where(linkId = 'patient-screening-lesion') -> bundle.entry as entry, entry.resource = create('Observation') as observation then
+                TransformScreeningLesion(src, item, patient, encounter, observation) "rule_patient_screening_lesions" ;
+        };
+    };
+
+}
+
+group TransformHabitHistoryCigarette(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_habit_cigarette_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_habit_cigarette_effective";
+    src -> observation.status = 'final' "rule_set_obs_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') "rule_set_obs_habit_cigarette_category";
+    src -> observation.code = cc('http://loinc.org', '63638-1', 'Smoking status [FTND]') "set_obs_habit_cigarette_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_habit_cigarette_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_habit_cigarette_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_oobs_habit_cigarette_answer_code";
+            value.system as system -> coding.system = system "rule_oobs_habit_cigarette_answer_system";
+            value.display as display -> coding.display = display "rule_oobs_habit_cigarette_answer_display";
+        };
+    };
+}
+
+group TransformHabitHistoryTobacco(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_habit_tobacco_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_habit_tobacco_effective";
+    src -> observation.status = 'final' "rule_set_obs_habit_tobacco_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') "rule_set_obs_habit_tobacco_category";
+    src -> observation.code = cc('http://loinc.org', '39240-7', 'Tobacco use status CPHS') "set_obs_habit_tobacco_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_habit_tobacco_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_habit_tobacco_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_habit_tobacco_answer_code";
+            value.system as system -> coding.system = system "rule_obs_habit_tobacco_answer_system";
+            value.display as display -> coding.display = display "rule_obs_habit_tobacco_answer_display";
+        };
+    };
+
+}
+
+group TransformHabitHistoryArecaNut(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_habit_areca_nut_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_habit_areca_nut_effective";
+    src -> observation.status = 'final' "rule_set_obs_habit_areca_nut_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') "rule_set_obs_habit_areca_nut_category";
+    src -> observation.code = cc('http://loinc.org', '64004-5', 'Tobacco product [PhenX]') "set_obs_habit_areca_nut_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_habit_areca_nut_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_habit_areca_nut_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding  then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_habit_areca_nut_answer_code";
+            value.system as system -> coding.system = system "rule_obs_habit_areca_nut_answer_system";
+            value.display as display -> coding.display = display "rule_obs_habit_areca_nut_answer_display";
+        };
+    };
+}
+
+group TransformHabitHistoryAlcohol(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_habit_alcohol_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_habit_alcohol_effective";
+    src -> observation.status = 'final' "rule_set_obs_habit_alcohol_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') "rule_set_obs_habit_alcohol_category";
+    src -> observation.code = cc('http://loinc.org', '74205-6', 'Alcohol use [NTDS]') "set_obs_habit_alcohol_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_habit_alcohol_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_habit_alcohol_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding  then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_habit_alcohol_answer_code";
+            value.system as system -> coding.system = system "rule_obs_habit_alcohol_answer_system";
+            value.display as display -> coding.display = display "rule_obs_habit_alcohol_answer_display";
+        };
+    };
+
+}
+
+group TransformHabitHistoryAlcoholFrequency(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_habit_alcohol_frequency_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_habit_alcohol_frequency_effective";
+    src -> observation.status = 'final' "rule_set_obs_habit_alcohol_frequency_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') "rule_set_obs_habit_alcohol_frequency_category";
+    src -> observation.code = cc('http://loinc.org', '62559-0', 'Lifetime alcohol exp proto') "set_obs_habit_alcohol_frequency_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_habit_alcohol_frequency_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_habit_alcohol_frequency_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding  then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_habit_alcohol_frequency_answer_code";
+            value.system as system -> coding.system = system "rule_obs_habit_alcohol_frequency_answer_system";
+            value.display as display -> coding.display = display "rule_obs_habit_alcohol_frequency_answer_display";
+        };
+    };
+}
+
+group TransformScreeningLesion(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation){
+    src -> observation.id = uuid() "rule_set_obs_screening_lesions_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_screening_lesions_effective";
+    src -> observation.status = 'final' "rule_set_obs_screening_lesions_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'exam', 'Exam') "rule_set_obs_screening_lesions_category";
+    src -> observation.code = cc('http://loinc.org', '62596-2', 'PhenX - oral health - oral mucosal lesions protocol 081001') "set_obs_screening_lesions_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_screening_lesions_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_screening_lesions_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding  then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_screening_lesions_answer_code";
+            value.system as system -> coding.system = system "rule_obs_screening_lesions_answer_system";
+            value.display as display -> coding.display = display "rule_obs_screening_lesions_answer_display";
+        };
+    };
+}
+
+group TransformScreeningMouth(source src: QuestionnaireResponse, source item: BackboneElement, source patient: Patient, source enc: Encounter, target observation: Observation, target bundle: Bundle){
+    src -> observation.id = uuid() "rule_set_obs_screening_open_mouth_id";
+    src -> observation.effective = evaluate(src, now()) "rule_set_obs_screening_open_mouth_effective";
+    src -> observation.status = 'final' "rule_set_obs_screening_open_mouth_status";
+    src -> observation.category = cc('http://terminology.hl7.org/CodeSystem/observation-category', 'exam', 'Exam') "rule_set_obs_screening_open_mouth_category";
+    src -> observation.code = cc('http://loinc.org', 'LP232821-1', 'Open mouth') "set_obs_screening_open_mouth_code";
+    patient.id as patientId log $this -> observation.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_obs_screening_open_mouth_set_subject";
+    enc.id as encounterId log $this -> observation.encounter = create('Reference') as encounter, encounter.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_obs_screening_open_mouth_set_encounter";
+
+    item.answer first as answer -> observation.value = create("CodeableConcept") as cc, cc.coding as coding  then {
+        answer.value as value then {
+            value.code as code -> coding.code = code "rule_obs_screening_open_mouth_answer_code";
+            value.system as system -> coding.system = system "rule_obs_screening_open_mouth_answer_system";
+            value.display as display -> coding.display = display "rule_obs_screening_open_mouth_answer_display";
+        };
+    };
+
+    src.item as screeningGroup where(linkId = 'screening-group') then {
+        screeningGroup.item as screeningImageGroup where(linkId = 'patient-screening-image-group') then {
+            screeningImageGroup.item as imageItem where(linkId.matches('patient-screening-image-[0-9]+-ai-result').not()) then {
+                imageItem.answer first as answer -> bundle.entry as entry, entry.resource = create('Media') as media then
+                    TransformObservationMedia(src, imageItem, screeningImageGroup, patient, enc, observation, media) "rule_patient_media";
+            };
+        };
+    };
+}
+
+group TransformPatientEncounter(source src: QuestionnaireResponse, source patient: Patient, target encounter: Encounter) {
+    src -> encounter.id = uuid() "rule_set_encounter_id";
+    src -> encounter.status = 'triaged' "rule_set_encounter_status";
+    src -> encounter.class = c('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'OBSENC', 'observation encounter') "rule_set_encounter_class";
+    src -> encounter.priority = cc('http://terminology.hl7.org/CodeSystem/v3-ActPriority', 'R', 'routine') "rule_set_encounter_priority";
+    src -> encounter.period = create("Period") as period then {
+        src -> period.start = evaluate(src, now()) "rule_encounter_start";
+        src -> period.end = evaluate(src, now()) "rule_encounter_end";
+    } "rule_encounter_period";
+
+    src.author as author-> encounter.participant as p,
+        p.individual = author,
+        p.type = cc('https://midas.iisc.ac.in/fhir/CodeSystem/treatment','pre-screener','Screening') "rule_enc_parti";
+
+    patient.id as patientId log $this -> encounter.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_encounter_subject";
+
+    src.item as aiResultItem where(linkId = 'case-level-ai-result') then {
+        aiResultItem.answer first as answer then {
+            answer.value as aiResultVal -> encounter.extension = create('Extension') as ext, ext.url = 'https://midas.iisc.ac.in/CodeSystem/case-level-ai-result', ext.value = aiResultVal "rule_encounter_ai_result_value";
+        } "rule_encounter_ai_result_answer";
+    } "rule_encounter_ai_result";
+
+    src.item as basicInfo where(linkId = 'basic-info-group') -> encounter.location as l, l.location = create('Reference') as location then {
+        // Extract location type
+        basicInfo.item as item where(linkId = 'location-physical-type') then {
+            item.answer first as answer then {
+                answer.value as coding where(code = 'field') then {
+                    coding -> location.reference = evaluate(patient, 'Location/physical-location-field') "set_rule_enc_location_field";
+                } "rule_enc_location_field";
+
+                answer.value as coding where(code = 'hospital') then {
+                    coding -> location.reference = evaluate(patient, 'Location/physical-location-hospital') "set_rule_enc_location_hospital";
+                } "rule_enc_location_hospital";
+            };
+        };
+    };
+
+}
+
+group TransformObservationMedia(source src: QuestionnaireResponse, source item: BackboneElement, source screeningImageGroup: BackboneElement, source patient: Patient, source encounter: Encounter, source observation: Observation, target media: media) {
+
+    item -> media.id = uuid() "rule_set_media_id";
+    item -> media.status = 'preparation' "rule_set_media_status";
+    item -> media.type = cc('http://terminology.hl7.org/CodeSystem/media-type','image', 'Image') "rule_set_media_type";
+    item -> media.bodySite = cc('http://www.snomed.org','113277000', 'Oral mucous membrane structure') "rule_set_media_body_site";
+    item -> media.view = cc('http://nema.org/dicom/dicm','XC', 'External-camera Photography') "rule_set_media_view";
+    src.author as author -> media.operator = author "rule_media_operator";
+
+    item.answer first as answer then {
+        answer.value as attachment -> media.content = attachment then {
+            attachment.creation as createdDateTime -> media.created = createdDateTime "rule_set_media_attachment";
+        };
+
+        // Per-model AI results — copy each prediction/confidence extension from the answer onto Media
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model-v6-prediction') -> media.extension = ext "rule_media_ext_v6_prediction";
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model-v6-confidence') -> media.extension = ext "rule_media_ext_v6_confidence";
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model-v8-prediction') -> media.extension = ext "rule_media_ext_v8_prediction";
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model-v8-confidence') -> media.extension = ext "rule_media_ext_v8_confidence";
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model-v82-prediction') -> media.extension = ext "rule_media_ext_v82_prediction";
+        answer.extension as ext where(url = 'http://smartregister.org/ai-model-result/v38-model82-confidence') -> media.extension = ext "rule_media_ext_v82_confidence";
+    };
+
+    item.linkId as imageLinkId then {
+        screeningImageGroup.item as aiItem where(linkId = (imageLinkId + '-ai-result')) then {
+            aiItem.answer first as aiAnswer then {
+                aiAnswer.value as aiResult -> media.note = create('Annotation') as note then {
+                    aiResult -> note.text = aiResult "rule_set_media_ai_result";
+                } "rule_media_ai_result_annotation";
+            };
+        };
+    };
+
+    patient.id as patientId log $this -> media.subject = create('Reference') as subject, subject.reference = evaluate(patientId, 'Patient/' + $this) "rule_media_subject";
+    encounter.id as encounterId log $this -> media.encounter = create('Reference') as subject, subject.reference = evaluate(encounterId, 'Encounter/' + $this) "rule_media_encounter";
+    observation.id as observationId log $this -> media.partOf = create('Reference') as subject, subject.reference = evaluate(observationId, 'Observation/' + $this) "rule_media_observation";
+}

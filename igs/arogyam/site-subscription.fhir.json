@@ -1,0 +1,22 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Subscription",
+        "id": "SubscriptionEncounterTriaged",
+        "status": "active",
+        "criteria": "Encounter?status=triaged",
+        "channel": {
+          "type": "rest-hook",
+          "endpoint": "http://arogyam-fhir-gateway.production.svc.cluster.local/api/incoming-webhook/main/encounter-change/OralCancerPatientCare"
+        }
+      },
+      "request": {
+        "method": "PUT",
+        "url": "Subscription/SubscriptionEncounterTriaged"
+      }
+    }
+  ]
+}

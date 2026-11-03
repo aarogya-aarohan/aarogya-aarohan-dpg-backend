@@ -1,0 +1,22 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Subscription",
+        "id": "SubscriptionOralCancerMedia",
+        "status": "active",
+        "criteria": "Media?status=preparation&site=http://www.snomed.org|113277000",
+        "channel": {
+          "type": "rest-hook",
+          "endpoint": "http://arogyam-fhir-gateway.production.svc.cluster.local/api/incoming-webhook/main/media-change/OralCancerLabelImage"
+        }
+      },
+      "request": {
+        "method": "PUT",
+        "url": "Subscription/SubscriptionOralCancerMedia"
+      }
+    }
+  ]
+}

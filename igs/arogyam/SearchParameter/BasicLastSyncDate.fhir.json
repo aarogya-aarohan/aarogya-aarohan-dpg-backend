@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "BasicLastSyncDate",
+  "title": "Last Sync Date",
+  "name": "BasicLastSyncDate",
+  "base": ["Basic"],
+  "status": "active",
+  "code": "last-sync-date",
+  "type": "date",
+  "expression": "Basic.extension('https://midas.iisc.ac.in/fhir/StructureDefinition/last-sync-date')",
+  "XpathUsage": "normal"
+}

@@ -1,0 +1,29 @@
+map "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageResponse" = 'OralCancerLabelImageResponse'
+
+uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse" as source
+
+
+group OralCancerLabelImageResponse(source src : QuestionnaireResponse, target bundle: Bundle) {
+    src -> bundle.entry as bundleClinicalImpressionEntry,
+         bundleClinicalImpressionEntry.resource = create('DiagnosticReport') as dr then {
+            src.item as provisionDiagnosisItem where(linkId = 'provisional-diagnosis') then {
+                provisionDiagnosisItem.answer first as answer -> 
+                    dr.id = uuid(),
+                    dr.encounter = evaluate(src,$this.encounter),
+                    dr.status = 'final',
+                    dr.subject = evaluate(src,$this.subject),
+                    dr.effective = evaluate(src, $this.authored),
+                    dr.performer = evaluate(src,$this.author),
+                    dr.conclusionCode as conclusionCode,
+                    conclusionCode.coding = evaluate(answer,$this.value)
+                    then AddMedia(src, dr) "rule_populate_impression";
+            } "rule_prov";
+    } "rule_bundle_entry_impression";
+}
+
+group AddMedia(source src: QuestionnaireResponse, target dr: DiagnosticReport){
+    src.item as mediaItem where(linkId = 'media-id') then {
+        mediaItem.answer first as answer -> dr.media as media, media.link = create('Reference') as ref, ref.reference = evaluate(answer, $this.value) "rule_media_rt";
+    } "rule_add_media";
+}

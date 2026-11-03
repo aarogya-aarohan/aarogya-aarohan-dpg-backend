@@ -1,0 +1,14 @@
+{
+    "resourceType": "SearchParameter",
+    "id": "OralCancerReferCase",
+    "title": "Oral Cancer Refer Case",
+    "name": "OralCancerReferCase",
+    "base": ["QuestionnaireResponse"],
+    "status": "active",
+    "code": "refer-case",
+    "type": "token",
+    "expression": "QuestionnaireResponse.extension.where(url='https://midas.iisc.ac.in/CodeSystem/refer-case').value.ofType(boolean)",
+    "xpathUsage": "normal",
+    "multipleOr": true,
+    "multipleAnd": true
+}

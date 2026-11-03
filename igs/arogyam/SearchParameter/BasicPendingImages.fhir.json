@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "BasicPendingImages",
+  "title": "pending-images",
+  "name": "pending-images",
+  "base": ["Basic"],
+  "status": "active",
+  "code": "pending-images",
+  "type": "token",
+  "expression": "Basic.extension('https://midas.iisc.ac.in/fhir/StructureDefinition/pending-images')",
+  "XpathUsage": "normal"
+}

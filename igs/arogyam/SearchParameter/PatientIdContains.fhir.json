@@ -1,0 +1,12 @@
+{
+    "resourceType": "SearchParameter",
+    "id": "PatientIdContains",
+    "title": "Patient Id Contains",
+    "name": "PatientIdContains",
+    "base": ["Patient"],
+    "status": "active",
+    "code": "id-contains",
+    "type": "string",
+    "expression": "Patient.id",
+    "XpathUsage": "normal"
+}

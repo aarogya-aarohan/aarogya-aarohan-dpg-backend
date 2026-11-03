@@ -1,0 +1,14 @@
+{
+    "resourceType": "SearchParameter",
+    "id": "OralCancerAIResult",
+    "title": "Oral Cancer AI Result",
+    "name": "OralCancerAIResult",
+    "base": ["Encounter"],
+    "status": "active",
+    "code": "oc-overall",
+    "type": "string",
+    "expression": "Encounter.extension.where(url='https://midas.iisc.ac.in/CodeSystem/case-level-ai-result').value.ofType(string)",
+    "xpathUsage": "normal",
+    "multipleOr": true,
+    "multipleAnd": true
+}

@@ -1,0 +1,36 @@
+map "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerLabelImageTask" = 'OralCancerLabelImageTask'
+
+uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+uses "http://hl7.org/fhir/StructureDefinition/Parameters" as source
+
+
+group OralCancerLabelImageTask(source src : Parameters, target bundle: Bundle) {
+    src ->  evaluate(src, $this.parameter.where(name='context').resource) as media,
+            evaluate(src, $this.parameter.where(name='resource').resource) as task,
+            bundle.entry as bundleTaskEntry, bundleTaskEntry.resource = task,
+            bundle.entry as bundleMediaEntry, bundleMediaEntry.resource = media
+            then UpdateMediaStatus(bundleMediaEntry,media), TransformTask(bundleTaskEntry, media, task) "rule_transform" ;
+}
+
+group TransformTask(source input, source media: Media, target task: Task) {
+    input -> task.id = uuid(),
+            task.status = 'requested',
+            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-image-labelling',
+            task.intent = 'order',
+            task.priority = 'routine',
+            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),
+            task.description = 'Task for reader to label image',
+            task.authoredOn = evaluate(input ,now()),
+            task.lastModified = evaluate(input ,now()) "rule_task_map";
+
+    input -> task.input as taskInput then AddTaskInput(task, media, taskInput) "map_task_input";
+}
+
+group AddTaskInput(source task: Task, source media: Media, target input){
+    task -> input.type = cc('http://hl7.org/fhir/resource-types','Media','Media'),
+            input.value = create('Reference') as ref, ref.reference = evaluate(media, 'Media/'+$this.id) "rule_task_input_map";
+}
+
+group UpdateMediaStatus(source input, target media: Media ){
+    input -> media.status = 'in-progress' 'update_media_status';
+}

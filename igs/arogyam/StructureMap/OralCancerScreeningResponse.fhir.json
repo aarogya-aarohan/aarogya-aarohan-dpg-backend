@@ -1,0 +1,848 @@
+{
+  "resourceType" : "StructureMap",
+  "id" : "OralCancerScreeningResponse",
+  "text" : {
+    "status" : "additional",
+    "div" : "<div xmlns=\"http://www.w3.org/1999/xhtml\"><pre>map &quot;https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningResponse&quot; = 'OralCancerScreeningResponse'\n\nuses &quot;http://hl7.org/fhir/StructureDefinition/Bundle&quot; as target\nuses &quot;http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse&quot; as source\n\n\ngroup OralCancerScreeningResponse(source src : QuestionnaireResponse, target bundle: Bundle) {\n    src -&gt; bundle.entry as clinicalImpressionEntry,\n        bundle.entry as conditionEntry,\n        bundle.entry as riskAccessementEntry,\n        clinicalImpressionEntry.resource = create('ClinicalImpression') as impression,\n        create('Condition') as condition,\n        create('RiskAssessment') as ra then {\n\n        // Creates clinical impression with just code and also creates a condition\n        src.item as provisionDiagnosisItem where(linkId = 'provisional-diagnosis') then {\n            provisionDiagnosisItem.answer first as answer -&gt; \n                impression.id = uuid(),\n                condition.id = uuid(),\n                impression.encounter = evaluate(src,$this.encounter),\n                impression.status = 'completed',\n                impression.description = 'Clinical impression by Specialist or Senior Specialist for a proabbale oral cancer patient',\n                impression.subject = evaluate(src,$this.subject),\n                impression.date = evaluate(src, $this.authored),\n                impression.assessor = evaluate(src,$this.author),\n                impression.finding as finding,\n                finding.itemCodeableConcept = create('CodeableConcept') as findingCC,\n                findingCC.coding = evaluate(answer,$this.value),\n                condition.encounter = evaluate(src,$this.encounter),\n                condition.subject = evaluate(src,$this.subject),\n                condition.clinicalStatus = cc('http://terminology.hl7.org/CodeSystem/condition-clinical','active','Active'),\n                condition.verificationStatus = cc('http://terminology.hl7.org/CodeSystem/condition-ver-status','confirmed','Confirmed'),\n                condition.code as conditionCode,\n                conditionCode.coding = evaluate(answer,$this.value),\n                condition.asserter = evaluate(src,$this.author),\n                impression.problem = create('Reference') as impressionProblemRef, \n                impressionProblemRef.reference = evaluate(condition,'Condition/' + $this.id),\n                conditionEntry.resource = condition &quot;rule_populate_impression&quot;;\n        } &quot;rule_prov&quot;;\n\n        // Create risk assesement based on the specialist answer\n        src.item as recommendationItem where(linkId = 'recommendation') then {\n            recommendationItem.answer first as answer -&gt; \n                ra.id = uuid(),\n                ra.status = 'final',\n                ra.subject = evaluate(src, $this.subject),\n                ra.encounter = evaluate(src, $this.encounter),\n                ra.performer = evaluate(src, $this.author),\n                ra.condition = create('Reference') as raConditionRef,\n                raConditionRef.reference = evaluate(condition,'Condition/' + $this.id),\n                impression.prognosisReference = create('Reference') as impressionPrognosisRef,\n                impressionPrognosisRef.reference = evaluate(ra,'RiskAssessment/' + $this.id) &quot;rule_populate_ra&quot;;\n        } &quot;rule_rec_ra&quot;;\n\n        // Create multiple outcome for the risk asssement\n        src.item as re where(linkId = 'recommendation') then {\n            re.answer as answer -&gt; \n                ra.prediction as prediction,\n                prediction.outcome as predictionCC,\n                predictionCC.coding = evaluate(answer,$this.value),\n                riskAccessementEntry.resource = ra  &quot;rule_rec_ra_pref_va&quot;;\n        } &quot;rule_rec_ra_pred&quot;;\n\n        // Update the body site where the condition is impacted\n        src.item as bodySiteItem where(linkId='oral-cavity-site') then {\n            bodySiteItem.answer first as answer -&gt; condition.bodySite = create('CodeableConcept') as bodyCC, bodyCC.coding = evaluate(answer,$this.value) &quot;rule_condition_body_site&quot;;\n        } &quot;rule_body_site&quot;;\n        \n        // Update the note of the specalist in clinical impression\n        src.item as noteItem where(linkId = 'note') then {\n            noteItem.answer first as answer -&gt; \n                impression.summary = evaluate(answer,$this.value) &quot;rule_populate_impression_note&quot;;\n        } &quot;rule_impression_note&quot;;\n\n    } &quot;rule_bundle_entry_impression&quot;;\n\n    src.item as recommendationItem where(linkId='recommendation') then {\n        recommendationItem where(answer.value.all(code ='quit-habit').not()) -&gt;\n            bundle.entry as taskEntry,\n            taskEntry.resource = create('Task') as task,\n            task.id = uuid(),\n            task.instantiatesUri = 'https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-follow-up',\n            task.encounter = evaluate(src,$this.encounter),\n            task.for = evaluate(src,$this.subject),\n            task.status = 'requested',\n            task.priority = 'routine',\n            task.code = cc('http://hl7.org/fhir/CodeSystem/task-code','fulfill','Fulfill the focal request'),\n            task.authoredOn = evaluate(src ,now()),\n            task.lastModified = evaluate(src ,now())\n            then UpdateTaskRecommendation(src, recommendationItem, task) &quot;rule_followup&quot;;\n    } &quot;recomm_chec&quot;;\n}\n\ngroup UpdateTaskRecommendation(source src: QuestionnaireResponse, source recommendationItem: BackboneElement, target task: Task){\n    recommendationItem.answer as answer then {\n        answer.value as value -&gt;\n            task.description = evaluate(value, 'Follow up: ' + $this.display),\n            task.input as recommendationInput,\n            recommendationInput.type as recommendationInputType,\n            recommendationInputType.id = 'recommendation',\n            recommendationInput.value = evaluate(value ,$this) &quot;rule_task_qh&quot;;\n    } &quot;rule_task_update&quot;;\n\n    recommendationItem.answer as answer then {\n        answer.value as value where(code='quit-habit') -&gt; task.intent = 'option' &quot;rule_task_intent_opt&quot;;\n        answer.value as value where(code='retake-image') -&gt; task.intent = 'proposal' &quot;rule_task_intent_prop&quot;;\n        answer.value as value where(code='additional-investigation-needed') -&gt; task.intent = 'plan' &quot;rule_task_intent_plan&quot;;\n        answer.value as value where(code='urgent-refer-to-hospital') -&gt; task.intent = 'order' &quot;rule_task_intent_intent&quot;;\n    } &quot;rule_follow_ans&quot;;\n}</pre></div>"
+  },
+  "url" : "https://midas.iisc.ac.in/fhir/StructureMap/OralCancerScreeningResponse",
+  "name" : "OralCancerScreeningResponse",
+  "structure" : [{
+    "url" : "http://hl7.org/fhir/StructureDefinition/Bundle",
+    "mode" : "target"
+  },
+  {
+    "url" : "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse",
+    "mode" : "source"
+  }],
+  "group" : [{
+    "name" : "OralCancerScreeningResponse",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "bundle",
+      "type" : "Bundle",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_bundle_entry_impression",
+      "source" : [{
+        "context" : "src"
+      }],
+      "target" : [{
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "clinicalImpressionEntry"
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "conditionEntry"
+      },
+      {
+        "context" : "bundle",
+        "contextType" : "variable",
+        "element" : "entry",
+        "variable" : "riskAccessementEntry"
+      },
+      {
+        "context" : "clinicalImpressionEntry",
+        "contextType" : "variable",
+        "element" : "resource",
+        "variable" : "impression",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "ClinicalImpression"
+        }]
+      },
+      {
+        "contextType" : "variable",
+        "variable" : "condition",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "Condition"
+        }]
+      },
+      {
+        "contextType" : "variable",
+        "variable" : "ra",
+        "transform" : "create",
+        "parameter" : [{
+          "valueString" : "RiskAssessment"
+        }]
+      }],
+      "rule" : [{
+        "name" : "rule_prov",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "provisionDiagnosisItem",
+          "condition" : "(linkId = 'provisional-diagnosis')"
+        }],
+        "rule" : [{
+          "name" : "rule_populate_impression",
+          "source" : [{
+            "context" : "provisionDiagnosisItem",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "id",
+            "transform" : "uuid"
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "id",
+            "transform" : "uuid"
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "encounter",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.encounter"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "status",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "completed"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "description",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "Clinical impression by Specialist or Senior Specialist for a proabbale oral cancer patient"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "subject",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.subject"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "date",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.authored"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "assessor",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.author"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "finding",
+            "variable" : "finding"
+          },
+          {
+            "context" : "finding",
+            "contextType" : "variable",
+            "element" : "itemCodeableConcept",
+            "variable" : "findingCC",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "CodeableConcept"
+            }]
+          },
+          {
+            "context" : "findingCC",
+            "contextType" : "variable",
+            "element" : "coding",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "encounter",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.encounter"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "subject",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.subject"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "clinicalStatus",
+            "transform" : "cc",
+            "parameter" : [{
+              "valueString" : "http://terminology.hl7.org/CodeSystem/condition-clinical"
+            },
+            {
+              "valueString" : "active"
+            },
+            {
+              "valueString" : "Active"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "verificationStatus",
+            "transform" : "cc",
+            "parameter" : [{
+              "valueString" : "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+            },
+            {
+              "valueString" : "confirmed"
+            },
+            {
+              "valueString" : "Confirmed"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "code",
+            "variable" : "conditionCode"
+          },
+          {
+            "context" : "conditionCode",
+            "contextType" : "variable",
+            "element" : "coding",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          },
+          {
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "asserter",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.author"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "problem",
+            "variable" : "impressionProblemRef",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Reference"
+            }]
+          },
+          {
+            "context" : "impressionProblemRef",
+            "contextType" : "variable",
+            "element" : "reference",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "condition"
+            },
+            {
+              "valueString" : "'Condition/' + $this.id"
+            }]
+          },
+          {
+            "context" : "conditionEntry",
+            "contextType" : "variable",
+            "element" : "resource",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "condition"
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "rule_rec_ra",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "recommendationItem",
+          "condition" : "(linkId = 'recommendation')"
+        }],
+        "rule" : [{
+          "name" : "rule_populate_ra",
+          "source" : [{
+            "context" : "recommendationItem",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "id",
+            "transform" : "uuid"
+          },
+          {
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "status",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueString" : "final"
+            }]
+          },
+          {
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "subject",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.subject"
+            }]
+          },
+          {
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "encounter",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.encounter"
+            }]
+          },
+          {
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "performer",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "src"
+            },
+            {
+              "valueString" : "$this.author"
+            }]
+          },
+          {
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "condition",
+            "variable" : "raConditionRef",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Reference"
+            }]
+          },
+          {
+            "context" : "raConditionRef",
+            "contextType" : "variable",
+            "element" : "reference",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "condition"
+            },
+            {
+              "valueString" : "'Condition/' + $this.id"
+            }]
+          },
+          {
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "prognosisReference",
+            "variable" : "impressionPrognosisRef",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "Reference"
+            }]
+          },
+          {
+            "context" : "impressionPrognosisRef",
+            "contextType" : "variable",
+            "element" : "reference",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "ra"
+            },
+            {
+              "valueString" : "'RiskAssessment/' + $this.id"
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "rule_rec_ra_pred",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "re",
+          "condition" : "(linkId = 'recommendation')"
+        }],
+        "rule" : [{
+          "name" : "rule_rec_ra_pref_va",
+          "source" : [{
+            "context" : "re",
+            "element" : "answer",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "ra",
+            "contextType" : "variable",
+            "element" : "prediction",
+            "variable" : "prediction"
+          },
+          {
+            "context" : "prediction",
+            "contextType" : "variable",
+            "element" : "outcome",
+            "variable" : "predictionCC"
+          },
+          {
+            "context" : "predictionCC",
+            "contextType" : "variable",
+            "element" : "coding",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          },
+          {
+            "context" : "riskAccessementEntry",
+            "contextType" : "variable",
+            "element" : "resource",
+            "transform" : "copy",
+            "parameter" : [{
+              "valueId" : "ra"
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "rule_body_site",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "bodySiteItem",
+          "condition" : "(linkId = 'oral-cavity-site')"
+        }],
+        "rule" : [{
+          "name" : "rule_condition_body_site",
+          "source" : [{
+            "context" : "bodySiteItem",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "condition",
+            "contextType" : "variable",
+            "element" : "bodySite",
+            "variable" : "bodyCC",
+            "transform" : "create",
+            "parameter" : [{
+              "valueString" : "CodeableConcept"
+            }]
+          },
+          {
+            "context" : "bodyCC",
+            "contextType" : "variable",
+            "element" : "coding",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          }]
+        }]
+      },
+      {
+        "name" : "rule_impression_note",
+        "source" : [{
+          "context" : "src",
+          "element" : "item",
+          "variable" : "noteItem",
+          "condition" : "(linkId = 'note')"
+        }],
+        "rule" : [{
+          "name" : "rule_populate_impression_note",
+          "source" : [{
+            "context" : "noteItem",
+            "element" : "answer",
+            "listMode" : "first",
+            "variable" : "answer"
+          }],
+          "target" : [{
+            "context" : "impression",
+            "contextType" : "variable",
+            "element" : "summary",
+            "transform" : "evaluate",
+            "parameter" : [{
+              "valueId" : "answer"
+            },
+            {
+              "valueString" : "$this.value"
+            }]
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "recomm_chec",
+      "source" : [{
+        "context" : "src",
+        "element" : "item",
+        "variable" : "recommendationItem",
+        "condition" : "(linkId = 'recommendation')"
+      }],
+      "rule" : [{
+        "name" : "rule_followup",
+        "source" : [{
+          "context" : "recommendationItem",
+          "condition" : "(answer.value.all(code = 'quit-habit').not())"
+        }],
+        "target" : [{
+          "context" : "bundle",
+          "contextType" : "variable",
+          "element" : "entry",
+          "variable" : "taskEntry"
+        },
+        {
+          "context" : "taskEntry",
+          "contextType" : "variable",
+          "element" : "resource",
+          "variable" : "task",
+          "transform" : "create",
+          "parameter" : [{
+            "valueString" : "Task"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "id",
+          "transform" : "uuid"
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "instantiatesUri",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "https://midas.iisc.ac.in/fhir/Task/oral-cancer-screening-follow-up"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "encounter",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "$this.encounter"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "for",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "$this.subject"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "status",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "requested"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "priority",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "routine"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "code",
+          "transform" : "cc",
+          "parameter" : [{
+            "valueString" : "http://hl7.org/fhir/CodeSystem/task-code"
+          },
+          {
+            "valueString" : "fulfill"
+          },
+          {
+            "valueString" : "Fulfill the focal request"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "authoredOn",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "now()"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "lastModified",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "src"
+          },
+          {
+            "valueString" : "now()"
+          }]
+        }],
+        "dependent" : [{
+          "name" : "UpdateTaskRecommendation",
+          "variable" : ["src",
+          "recommendationItem",
+          "task"]
+        }]
+      }]
+    }]
+  },
+  {
+    "name" : "UpdateTaskRecommendation",
+    "typeMode" : "none",
+    "input" : [{
+      "name" : "src",
+      "type" : "QuestionnaireResponse",
+      "mode" : "source"
+    },
+    {
+      "name" : "recommendationItem",
+      "type" : "BackboneElement",
+      "mode" : "source"
+    },
+    {
+      "name" : "task",
+      "type" : "Task",
+      "mode" : "target"
+    }],
+    "rule" : [{
+      "name" : "rule_task_update",
+      "source" : [{
+        "context" : "recommendationItem",
+        "element" : "answer",
+        "variable" : "answer"
+      }],
+      "rule" : [{
+        "name" : "rule_task_qh",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value"
+        }],
+        "target" : [{
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "description",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "value"
+          },
+          {
+            "valueString" : "'Follow up: ' + $this.display"
+          }]
+        },
+        {
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "input",
+          "variable" : "recommendationInput"
+        },
+        {
+          "context" : "recommendationInput",
+          "contextType" : "variable",
+          "element" : "type",
+          "variable" : "recommendationInputType"
+        },
+        {
+          "context" : "recommendationInputType",
+          "contextType" : "variable",
+          "element" : "id",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "recommendation"
+          }]
+        },
+        {
+          "context" : "recommendationInput",
+          "contextType" : "variable",
+          "element" : "value",
+          "transform" : "evaluate",
+          "parameter" : [{
+            "valueId" : "value"
+          },
+          {
+            "valueString" : "$this"
+          }]
+        }]
+      }]
+    },
+    {
+      "name" : "rule_follow_ans",
+      "source" : [{
+        "context" : "recommendationItem",
+        "element" : "answer",
+        "variable" : "answer"
+      }],
+      "rule" : [{
+        "name" : "rule_task_intent_opt",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value",
+          "condition" : "(code = 'quit-habit')"
+        }],
+        "target" : [{
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "intent",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "option"
+          }]
+        }]
+      },
+      {
+        "name" : "rule_task_intent_prop",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value",
+          "condition" : "(code = 'retake-image')"
+        }],
+        "target" : [{
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "intent",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "proposal"
+          }]
+        }]
+      },
+      {
+        "name" : "rule_task_intent_plan",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value",
+          "condition" : "(code = 'additional-investigation-needed')"
+        }],
+        "target" : [{
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "intent",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "plan"
+          }]
+        }]
+      },
+      {
+        "name" : "rule_task_intent_intent",
+        "source" : [{
+          "context" : "answer",
+          "element" : "value",
+          "variable" : "value",
+          "condition" : "(code = 'urgent-refer-to-hospital')"
+        }],
+        "target" : [{
+          "context" : "task",
+          "contextType" : "variable",
+          "element" : "intent",
+          "transform" : "copy",
+          "parameter" : [{
+            "valueString" : "order"
+          }]
+        }]
+      }]
+    }]
+  }]
+}

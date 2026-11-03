@@ -1,0 +1,16 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "PatientReferenceIdContains",
+  "url": "https://midas.iisc.ac.in/fhir/SearchParameter/PatientReferenceIdContains",
+  "name": "PatientReferenceIdContains",
+  "status": "active",
+  "description": "Search Patient identifier value using string :contains",
+  "code": "reference-id-contains",
+  "base": [
+    "Patient"
+  ],
+  "type": "string",
+  "expression": "Patient.identifier.where(system='https://midas.iisc.ac.in/fhir/identifier/patient-id').value",
+  "processingMode": "normal",
+  "xpathUsage": "normal"
+}

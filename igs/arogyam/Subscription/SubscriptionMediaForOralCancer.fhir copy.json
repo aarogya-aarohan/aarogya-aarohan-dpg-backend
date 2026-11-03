@@ -1,0 +1,10 @@
+{
+  "resourceType": "Subscription",
+  "id": "SubscriptionOralCancerMedia",
+  "status": "active",
+  "criteria": "Media?status=preparation&site=http://www.snomed.org|113277000",
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "<Base Arogyam Gateway>/api/incoming-webhook/main/media-change/OralCancerLabelImage"
+  }
+}
